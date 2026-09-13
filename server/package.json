@@ -1,0 +1,43 @@
+{
+  "name": "@balance/server",
+  "version": "0.4.0",
+  "private": true,
+  "author": "Dmytro Klymenko",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": "https://github.com/dklymenko/balance.git",
+  "type": "module",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "src/migrations",
+    "client-dist"
+  ],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@balance/core": "*",
+    "better-sqlite3": "^12.9.0",
+    "csv-parse": "^7.0.2",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.45.2",
+    "express": "^5.1.0",
+    "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.0.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/supertest": "^7.2.0",
+    "@vitest/ui": "4.1.11",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.12",
+    "typescript": "^5.8.0",
+    "vitest": "4.1.11"
+  }
+}

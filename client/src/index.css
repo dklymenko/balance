@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Design tokens. Two themes via runtime CSS variables that
+   swap on the root: default follows prefers-color-scheme; a manual choice sets
+   data-theme="light" | "dark" (see lib/theme.ts). Tailwind utilities resolve to
+   these variables through @theme inline, so the whole palette switches at once.
+   Never hard-code hex in components -- use the tokens / utilities below.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+@theme inline {
+  /* shadcn/ui surface + text tokens → swappable vars */
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-secondary: var(--bg-surface-2);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--bg-surface-2);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--bg-surface-2);
+  --color-accent-foreground: var(--text-primary);
+  --color-border: var(--border-subtle);
+  --color-input: var(--border-subtle);
+
+  /* Brand: coral = primary/navigation action; blue = in-form confirm/links */
+  --color-primary: var(--brand-accent);
+  --color-primary-foreground: #ffffff;
+  --color-ring: var(--brand-accent);
+  --color-brand: var(--brand-accent);
+  --color-brand-pressed: var(--brand-accent-pressed);
+  --color-confirm: var(--brand-confirm);
+
+  /* Semantic money colors (utilities: text-income, bg-expense, …) */
+  --color-income: var(--money-income);
+  --color-expense: var(--money-expense);
+  --color-negative: var(--money-negative);
+  --color-neutral-bar: var(--money-neutral-bar);
+  --color-destructive: var(--money-expense);
+  --color-destructive-foreground: #ffffff;
+
+  /* Extra surfaces */
+  --color-surface-2: var(--bg-surface-2);
+  --color-surface-tint-income: var(--bg-surface-tint-income);
+
+  /* 12px card radius per design */
+  --radius: 0.75rem;
+
+  /* Native system font stack so the PWA feels native everywhere */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", Roboto,
+    system-ui, sans-serif;
+}
+
+/* Light palette -- the default, and the forced-light override. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-base: #f2f2f7;
+  --bg-surface: #ffffff;
+  --bg-surface-2: #f2f2f7;
+  --bg-surface-tint-income: #e6f6ec;
+  --text-primary: #0a0a0a;
+  --text-secondary: #6b6b70;
+  --text-tertiary: #a0a0a5;
+  --border-subtle: rgba(0, 0, 0, 0.1);
+  --money-income: #1fa463;
+  --money-expense: #d23b3f;
+  --money-negative: #d9531f;
+  --money-neutral-bar: #3a3a3c;
+  --brand-accent: #e8483d;
+  --brand-accent-pressed: #c73b30;
+  --brand-confirm: #0a84ff;
+  --chart-bar: #d8d8dc;
+  --chart-selected: #2e80d6;
+}
+
+/* Dark palette -- applied when the system prefers dark and no manual light
+   choice is set, OR when dark is chosen explicitly. (Both selectors carry the
+   same values; a prefers-color-scheme query cannot be merged with the attribute
+   selector, so the dark block is intentionally listed twice.) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-base: #000000;
+    --bg-surface: #121212;
+    --bg-surface-2: #1c1c1e;
+    --bg-surface-tint-income: #10271a;
+    --text-primary: #ffffff;
+    --text-secondary: #8e8e93;
+    --text-tertiary: #5a5a5e;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --money-income: #3dd17f;
+    --money-expense: #e5484d;
+    --money-negative: #f0622e;
+    --money-neutral-bar: #e8e8ea;
+    --brand-accent: #e8483d;
+    --brand-accent-pressed: #c73b30;
+    --brand-confirm: #0a84ff;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-base: #000000;
+  --bg-surface: #121212;
+  --bg-surface-2: #1c1c1e;
+  --bg-surface-tint-income: #10271a;
+  --text-primary: #ffffff;
+  --text-secondary: #8e8e93;
+  --text-tertiary: #5a5a5e;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --money-income: #3dd17f;
+  --money-expense: #e5484d;
+  --money-negative: #f0622e;
+  --money-neutral-bar: #e8e8ea;
+  --brand-accent: #e8483d;
+  --brand-accent-pressed: #c73b30;
+  --brand-confirm: #0a84ff;
+  --chart-bar: #3a3a3d;
+  --chart-selected: #4a9eef;
+}
+
+/* Text-size scale (lib/fontSize.ts). rem-based utilities scale off the root
+   font-size, so the whole app grows/shrinks proportionally without touching any
+   component. Default is the larger, touch-friendly scale; a manual "compact"
+   choice restores the earlier density. Percentages (not fixed px) so a user's own
+   browser base size is still respected. */
+html {
+  scrollbar-gutter: stable;
+  font-size: 112.5%; /* comfortable default scale */
+}
+html[data-font-size="compact"] {
+  font-size: 100%; /* compact -- the app's earlier density */
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Monetary values: tabular figures so amounts align vertically in lists. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessibility ───────────────────────────────────────────────────────────── */
+
+/* Visible keyboard focus on interactive elements. Uses :where() (zero
+   specificity) so it's only a fallback -- components that define their own
+   focus-visible ring (shadcn/ui) still win and we avoid double indicators. */
+:where(a, button, [role="button"], input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+/* Respect the user's reduced-motion preference: neutralise transitions and
+   animations (speed-dial, theme/nav transitions, etc.). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

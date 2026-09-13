@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Verify
+    # Balance supports Apple-silicon macOS; keep the release gate on that same
+    # platform instead of treating a Linux portability check as product proof.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      # Must match the engines field in package.json and the version stated in
+      # INSTALL.md. A mismatch here means CI passes on something users cannot
+      # reproduce.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Keep CI on the same supported path documented for source users. Verify
+      # builds shared workspaces before tests, then checks both native ABIs.
+      - name: Verify repository
+        run: npm run verify
+
+      # Source users execute the compiler, test runner, packager, and native
+      # build chain, so development dependencies are part of the threat model.
+      - name: Dependency audit (runtime and development)
+        run: npm run audit:all
+
+      - name: Generate third-party notices
+        run: npm run notices
+
+      - name: Third-party notices are current
+        run: git diff --exit-code -- THIRD_PARTY_NOTICES.md

@@ -1,0 +1,10 @@
+{
+  "_comment": "Copy this file to server/data/budget-app-mapping.json and fill in your real account names. Maps source budget-app account labels to the account names you've created in Balance.",
+  "accounts": {
+    "src.SourceLabel.A": "Your Account Name A",
+    "src.SourceLabel.B": "Your Account Name B"
+  },
+  "categoryChildOverrides": {
+    "SourceChildName": "BalanceChildName"
+  }
+}

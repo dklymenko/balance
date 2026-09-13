@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>Balance</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem; gap: 1rem;
+      background: light-dark(#fafafa, #111); color: light-dark(#111, #eee);
+    }
+    .brand { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.25rem; }
+    h1 { font-size: 0.95rem; font-weight: 500; color: light-dark(#555, #aaa); }
+    form { display: flex; flex-direction: column; gap: 0.6rem; width: 17rem; margin-top: 0.5rem; }
+    input {
+      font: inherit; padding: 0.5rem 0.7rem; border-radius: 8px;
+      border: 1px solid light-dark(#ccc, #444);
+      background: light-dark(#fff, #1b1b1b); color: inherit;
+    }
+    input:focus { outline: 2px solid light-dark(#111, #eee); outline-offset: -1px; }
+    button {
+      font: inherit; padding: 0.5rem 0.9rem; border-radius: 8px; cursor: pointer;
+      border: 1px solid light-dark(#ccc, #444);
+      background: light-dark(#f2f2f2, #262626); color: inherit;
+    }
+    button.primary { background: light-dark(#111, #eee); color: light-dark(#fff, #111); border-color: transparent; }
+    button:disabled { opacity: 0.45; cursor: default; }
+    .row { display: flex; gap: 0.5rem; }
+    .row button { flex: 1; }
+    .err { color: light-dark(#b3261e, #ff8a80); font-size: 0.82rem; min-height: 1.1em; text-align: center; }
+    .hint { color: light-dark(#777, #888); font-size: 0.78rem; text-align: center; max-width: 19rem; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="brand">Balance</div>
+  <h1 id="title">Locked</h1>
+  <form id="form">
+    <input type="password" id="current" placeholder="Password" autocomplete="current-password" />
+    <input type="password" id="next" placeholder="New password" autocomplete="new-password" style="display:none" />
+    <input type="password" id="confirm" placeholder="Repeat new password" autocomplete="new-password" style="display:none" />
+    <p class="err" id="err"></p>
+    <button type="submit" class="primary" id="submit">Unlock</button>
+    <div class="row" id="extra"></div>
+  </form>
+  <p class="hint" id="hint"></p>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let mode = "unlock";
+
+    const COPY = {
+      unlock:  { title: "Locked", submit: "Unlock", hint: "" },
+      setup:   { title: "Require a password to open Balance", submit: "Turn On App Lock",
+                 hint: "Use at least 12 characters. The password never leaves this Mac: only a hardened verifier is stored, sealed with your macOS Keychain. Keep your Balance backups safe." },
+      change:  { title: "Change the app-lock password", submit: "Change Password", hint: "" },
+      disable: { title: "Turn off the app lock", submit: "Turn Off", hint: "Balance will open without a password." },
+    };
+
+    function applyMode(info) {
+      mode = info.mode;
+      const c = COPY[mode];
+      $("title").textContent = c.title;
+      $("submit").textContent = c.submit;
+      $("hint").textContent = c.hint;
+      $("current").style.display = mode === "setup" ? "none" : "";
+      $("next").style.display = (mode === "setup" || mode === "change") ? "" : "none";
+      $("confirm").style.display = (mode === "setup" || mode === "change") ? "" : "none";
+      $("current").placeholder = mode === "unlock" ? "Password" : "Current password";
+
+      const extra = $("extra");
+      if (mode === "unlock") {
+        if (info.touchId) {
+          const b = document.createElement("button");
+          b.type = "button"; b.textContent = "Use Touch ID";
+          b.addEventListener("click", tryTouchId);
+          extra.appendChild(b);
+          tryTouchId(); // offer the fast path immediately; cancel falls back to password
+        }
+        const q = document.createElement("button");
+        q.type = "button"; q.textContent = info.quitOnClose ? "Quit" : "Cancel";
+        q.addEventListener("click", () => window.balanceLockUi.cancel());
+        extra.appendChild(q);
+      } else {
+        const q = document.createElement("button");
+        q.type = "button"; q.textContent = "Cancel";
+        q.addEventListener("click", () => window.balanceLockUi.cancel());
+        extra.appendChild(q);
+      }
+      ($("current").style.display === "none" ? $("next") : $("current")).focus();
+    }
+
+    async function tryTouchId() {
+      $("err").textContent = "";
+      try { await window.balanceLockUi.touchId(); } catch { /* fall back to password */ }
+    }
+
+    $("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      $("err").textContent = "";
+      const current = $("current").value;
+      const next = $("next").value;
+      if ((mode === "setup" || mode === "change")) {
+        if (next.length < 12) { $("err").textContent = "Password must be at least 12 characters."; return; }
+        if (next !== $("confirm").value) { $("err").textContent = "Passwords do not match."; return; }
+      }
+      $("submit").disabled = true;
+      try {
+        const r = await window.balanceLockUi.submit({ current, next });
+        if (!r.ok) { $("err").textContent = r.error || "Incorrect password."; $("current").value = ""; $("current").focus(); }
+      } catch {
+        $("err").textContent = "Balance could not update the app lock. Try again.";
+      } finally {
+        $("submit").disabled = false;
+      }
+    });
+
+    window.balanceLockUi.info().then(applyMode);
+  </script>
+</body>
+</html>

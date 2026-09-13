@@ -1,0 +1,85 @@
+# Source checkouts can build unsigned local packages. Signing credentials are
+# intentionally not required by this repository.
+appId: com.dmytroklymenko.balance
+productName: Balance Desktop
+artifactName: Balance-Desktop-${version}-${arch}.${ext}
+afterPack: scripts/after-pack.cjs
+electronFuses:
+  runAsNode: false
+  # This repository intentionally supports unsigned local packages. Electron's
+  # cookie-encryption fuse delegates to macOS Keychain; in an unsigned local
+  # package it can prompt before user opt-in and was observed to stall the first
+  # renderer navigation.
+  # Balance stores no local-auth cookie; third-party auth partitions are
+  # memory-only, so disabling this fuse does not put session cookies on disk.
+  enableCookieEncryption: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+  resetAdHocDarwinSignature: true
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+  # Workspace dependencies are symlinked to their source directories during
+  # development. electron-builder follows those links, so explicitly reduce
+  # first-party packages to their runtime artifacts. Without these exclusions
+  # ignored local databases, .env files, browser profiles, tests, and source
+  # files can be copied into the application bundle.
+  - "!**/node_modules/@balance/server/**/.env*"
+  - "!**/node_modules/@balance/server/**/*.db*"
+  - "!**/node_modules/@balance/server/data{,/**/*}"
+  - "!**/node_modules/@balance/server/**/*.ts"
+  - "!**/node_modules/@balance/server/src/__tests__{,/**/*}"
+  - "!**/node_modules/@balance/server/src/test{,/**/*}"
+  - "!**/node_modules/@balance/server/src/tools{,/**/*}"
+  - "!**/node_modules/@balance/server/scripts{,/**/*}"
+  - "!**/node_modules/@balance/server/Transactions{,/**/*}"
+  - "!**/node_modules/@balance/server/budget-app-mapping.example.json"
+  - "!**/node_modules/@balance/server/tsconfig*.json"
+  - "!**/node_modules/@balance/server/vitest.config.*"
+  - "!**/node_modules/@balance/core/src{,/**/*}"
+  - "!**/node_modules/@balance/core/**/*.ts"
+  - "!**/node_modules/@balance/core/tsconfig*.json"
+  - "!**/node_modules/@balance/sync-client/src{,/**/*}"
+  - "!**/node_modules/@balance/sync-client/test{,/**/*}"
+  - "!**/node_modules/@balance/sync-client/**/*.ts"
+  - "!**/node_modules/@balance/sync-client/tsconfig*.json"
+  - "!**/node_modules/@balance/sync-client/vitest.config.*"
+extraResources:
+  - from: ../LICENSE
+    to: LICENSE.txt
+  - from: ../LICENSING.md
+    to: LICENSING.md
+  - from: ../PRIVACY.md
+    to: PRIVACY.md
+  - from: ../SECURITY.md
+    to: SECURITY.md
+  - from: ../THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+# The embedded server must exist as real files on disk, not asar entries:
+# the utilityProcess child reads .sql migrations and serves the client build
+# from the filesystem, and better-sqlite3 loads a native binding.
+asarUnpack:
+  - "node_modules/@balance/server/**"
+  - "node_modules/@balance/sync-client/**"
+  - "node_modules/@balance/core/**"
+  - "node_modules/better-sqlite3/**"
+  - "node_modules/better-sqlite3-multiple-ciphers/**"
+  - "node_modules/drizzle-orm/**"
+  - "node_modules/bindings/**"
+  - "node_modules/file-uri-to-path/**"
+mac:
+  category: public.app-category.finance
+  icon: build/icon.png
+  hardenedRuntime: true
+  notarize: true
+  extendInfo:
+    NSHumanReadableCopyright: Copyright © 2026 Dmytro Klymenko
+  target:
+    - dmg
+    - zip

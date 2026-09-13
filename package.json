@@ -1,0 +1,45 @@
+{
+  "name": "balance",
+  "version": "0.2.0",
+  "author": "Dmytro Klymenko",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": "https://github.com/dklymenko/balance.git",
+  "private": true,
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
+  },
+  "workspaces": [
+    "packages/*",
+    "client",
+    "server",
+    "desktop"
+  ],
+  "scripts": {
+    "postinstall": "node scripts/native-abi.mjs build",
+    "dev": "concurrently -n client,server -c cyan,green \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
+    "build:packages": "npm run build --workspace=@balance/core && npm run build --workspace=@balance/sync-client",
+    "build:client": "npm run build --workspace=client && rm -rf server/client-dist && cp -R client/dist server/client-dist",
+    "build:server": "npm run build --workspace=server",
+    "build:desktop": "npm run build --workspace=balance-desktop",
+    "build": "npm run build:packages && npm run build:client && npm run build:server && npm run build:desktop",
+    "start": "npm run build && electron desktop",
+    "app": "electron desktop",
+    "typecheck": "npm run typecheck --workspace=balance-desktop",
+    "lint": "npm run lint --workspace=@balance/client",
+    "audit:all": "npm audit --audit-level=moderate",
+    "verify": "npm run hygiene && npm run abi:check && npm run lint && npm run build && npm run typecheck && npm test",
+    "hygiene": "node scripts/check-release-hygiene.mjs",
+    "notices": "node scripts/generate-third-party-notices.mjs",
+    "test:hygiene": "node --test scripts/*.test.mjs",
+    "test": "npm run test:hygiene && npm run test --workspace=@balance/core && npm run test --workspace=@balance/sync-client && npm run test --workspace=server && npm run test --workspace=client && npm run test --workspace=balance-desktop",
+    "dist": "npm run notices && npm run build && npm run dist --workspace=balance-desktop && npm run abi",
+    "abi": "node scripts/native-abi.mjs build",
+    "abi:check": "node scripts/native-abi.mjs check"
+  },
+  "devDependencies": {
+    "better-sqlite3-multiple-ciphers-node": "npm:better-sqlite3-multiple-ciphers@12.11.1",
+    "concurrently": "^9.2.1"
+  }
+}

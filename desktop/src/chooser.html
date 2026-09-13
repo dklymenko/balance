@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>Welcome to Balance</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 2rem; gap: 1.75rem;
+      background: light-dark(#fafafa, #111);
+      color: light-dark(#111, #eee);
+    }
+    h1 { font-size: 1.35rem; font-weight: 650; }
+    p.sub { color: light-dark(#555, #aaa); font-size: 0.9rem; max-width: 30rem; text-align: center; }
+    .cards { display: flex; gap: 1rem; }
+    button.card {
+      width: 15.5rem; padding: 1.25rem 1.1rem; text-align: left; cursor: pointer;
+      border: 1px solid light-dark(#ddd, #333); border-radius: 12px;
+      background: light-dark(#fff, #1b1b1b); color: inherit; font: inherit;
+    }
+    button.card:hover { border-color: light-dark(#888, #666); }
+    button.card h2 { font-size: 1rem; font-weight: 600; margin-bottom: 0.4rem; }
+    button.card p { font-size: 0.82rem; color: light-dark(#555, #aaa); line-height: 1.45; }
+    button.card:disabled { cursor: default; opacity: 0.45; }
+    button.card:disabled:hover { border-color: light-dark(#ddd, #333); }
+    .badge {
+      display: inline-block; margin-left: 0.45rem; padding: 0.1rem 0.4rem;
+      border: 1px solid currentColor; border-radius: 999px;
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; vertical-align: 0.12rem;
+    }
+    .note { font-size: 0.78rem; color: light-dark(#777, #888); }
+  </style>
+</head>
+<body>
+  <h1>Your money. Right where it belongs.</h1>
+  <p class="sub">Choose how you want to use Balance. You can change this later.</p>
+  <div class="cards">
+    <button class="card" id="local">
+      <h2>Keep it on this Mac</h2>
+      <p>Private by design. Your data runs fully locally and never leaves your computer.</p>
+    </button>
+    <button class="card" id="cloud">
+      <h2>Use Balance Cloud<span class="badge" id="cloud-badge" hidden>Coming soon</span></h2>
+      <p id="cloud-copy">Subscription. Sign in to your household, share with up to 4 members, and keep a full offline copy on this Mac that syncs in the background.</p>
+    </button>
+  </div>
+  <p class="note" id="note">Local data can be migrated to the cloud later, and exported back out at any time.</p>
+  <script>
+    document.getElementById("local").addEventListener("click", () => window.balanceSetup.chooseMode("local"));
+
+    // Cloud is hidden until the hosted service opens to the public. Ask the
+    // main process rather than deciding here, so the renderer never holds the
+    // switch. Default to disabled if the question fails.
+    const cloudBtn = document.getElementById("cloud");
+    const markCloudUnavailable = () => {
+      cloudBtn.disabled = true;
+      document.getElementById("cloud-badge").hidden = false;
+      document.getElementById("cloud-copy").textContent =
+        "Sync your ledger across devices and share it with your household. Not open to the public yet.";
+      document.getElementById("note").textContent =
+        "Start on this Mac. You can move your data to the cloud later, and export it back out at any time.";
+    };
+    window.balanceSetup.cloudEnabled().then((enabled) => {
+      if (enabled) {
+        cloudBtn.addEventListener("click", () => window.balanceSetup.chooseMode("cloud"));
+        return;
+      }
+      markCloudUnavailable();
+    }).catch(markCloudUnavailable);
+  </script>
+</body>
+</html>

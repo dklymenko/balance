@@ -1,0 +1,101 @@
+# Database files - never commit real data
+*.db
+*.db-shm
+*.db-wal
+
+# Environment secrets
+.env
+
+# CSV imports - may contain PII / financial data
+*.csv
+*.CSV
+Transactions/
+imports/
+data/
+
+# Local config (account mappings, etc.) - may name real institutions
+server/data/budget-app-mapping.json
+
+# One-off local backfill scripts - name real institutions / are not part of the app
+server/scripts/
+
+# Node
+node_modules/
+
+# Build outputs
+dist/
+build/
+!desktop/build/
+desktop/build/*
+!desktop/build/icon.icns
+!desktop/build/icon.png
+server/client-dist/
+*.tgz
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/settings.json
+*.local
+
+# Markdown is private by default. Every public document must be reviewed and
+# explicitly allowlisted here and in scripts/release-hygiene-policy.mjs.
+*.md
+!/README.md
+!/INSTALL.md
+!/LICENSING.md
+!/PRIVACY.md
+!/SECURITY.md
+!/THIRD_PARTY_NOTICES.md
+!/packages/sync-client/README.md
+
+# Internal working directories and document artifacts are never source files.
+internal/
+planning/
+plans/
+roadmap/
+notes/
+handoff/
+*.doc
+*.docx
+*.key
+*.numbers
+*.pages
+*.pdf
+*.ppt
+*.pptx
+*.xls
+*.xlsx
+
+# Internal working documents: strategy, AI instructions, build inventory.
+# Never published. Kept on disk, out of the repository.
+Balance.md
+balance.md
+Built.md
+Claude.md
+CLAUDE.md
+AGENTS.md
+BUILT.md
+Codex.md
+CODEX.md
+Gemini.md
+GEMINI.md
+INSTRUCTIONS.md
+AI_INSTRUCTIONS.md
+.cursorrules
+.claude/
+.agents/
+.aider/
+.continue/
+.codex/
+.cursor/
+.gemini/
+.roo/
+.windsurf/
+.github/instructions/
+.github/prompts/
+.github/copilot-instructions.md
+
+# Packaged app output
+release/

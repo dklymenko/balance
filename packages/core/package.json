@@ -1,0 +1,21 @@
+{
+  "name": "@balance/core",
+  "version": "0.1.0",
+  "private": true,
+  "author": "Dmytro Klymenko",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": "https://github.com/dklymenko/balance.git",
+  "description": "Shared financial core: integer-cents money, canonical balance recomputation, Archive v1 validation, and sync wire types.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "vitest": "4.1.11"
+  }
+}

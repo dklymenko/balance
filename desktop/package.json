@@ -1,0 +1,33 @@
+{
+  "name": "balance-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Desktop app for Balance -- local-first personal finance with an optional cloud mode and local Amazon order sync.",
+  "author": "Dmytro Klymenko",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": "https://github.com/dklymenko/balance.git",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/*.html dist/",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "npm run build && electron .",
+    "dist": "electron-builder && node scripts/verify-package.mjs"
+  },
+  "dependencies": {
+    "@balance/core": "*",
+    "@balance/server": "*",
+    "@balance/sync-client": "*",
+    "better-sqlite3-multiple-ciphers": "^12.11.1"
+  },
+  "devDependencies": {
+    "@electron/fuses": "1.8.0",
+    "@types/node": "^26.1.1",
+    "@electron/asar": "^3.4.1",
+    "electron": "43.4.1",
+    "electron-builder": "^26.15.3",
+    "plist": "^3.1.0",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.11"
+  }
+}
