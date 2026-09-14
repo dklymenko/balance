@@ -31,7 +31,7 @@ import TransactionFilterPanel from "@/components/TransactionFilterPanel";
 import { type TxType } from "@/lib/txType";
 import { type DatePreset } from "@/lib/dateFilters";
 import { useAdvancedFeatures } from "@/lib/features";
-import { getDesktopBridge } from "@/lib/desktopBridge";
+import { getDesktopBridge, type DesktopCloudStatus } from "@/lib/desktopBridge";
 import { txAmountClass, txSign } from "@/lib/money";
 import { monogram, monogramColor, dateGroupLabel } from "@/lib/rowVisual";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -146,6 +146,9 @@ export default function Transactions() {
   // Balance Desktop shell. The bridge is injected at page load and never
   // changes, so a plain read (no state) is enough.
   const desktopBridge = getDesktopBridge() != null;
+  const [cloudStatus, setCloudStatus] = useState<DesktopCloudStatus | null>(() =>
+    getDesktopBridge()?.cloud ? null : { mode: "local", connecting: false }
+  );
   const [txList, setTxList] = useState<Transaction[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(new Set());
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<number>>(new Set());
@@ -184,6 +187,16 @@ export default function Transactions() {
   const [accountsDrawerOpen, setAccountsDrawerOpen] = useState(false);
   const isCompact = useMediaQuery("(max-width: 767px)");
   const t = useT();
+
+  useEffect(() => {
+    const cloud = getDesktopBridge()?.cloud;
+    if (!cloud) return;
+    let active = true;
+    void cloud.status()
+      .then((status) => { if (active) setCloudStatus(status); })
+      .catch(() => { if (active) setCloudStatus({ mode: "local", connecting: false }); });
+    return () => { active = false; };
+  }, []);
 
   // Reloaded after any transaction change so the header balance stays in sync.
   // accountsLoaded gates the onboarding checklist so it never flashes while the
@@ -782,10 +795,11 @@ export default function Transactions() {
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 pt-4 pb-24 md:pb-4">
         {/* First-run checklist: only once both initial fetches settled and no
             filters are active (a filtered-to-empty ledger is not a new household). */}
-        {accountsLoaded && !loadingTx && !hasFilters && !search.trim() && (
+        {accountsLoaded && !loadingTx && cloudStatus && !cloudStatus.connecting && !hasFilters && !search.trim() && (
           <OnboardingChecklist
             accountCount={accounts.length}
             transactionCount={total}
+            isCloudProfile={cloudStatus.mode === "cloud"}
             onSampleLoaded={() => { refreshAccounts(); reload(); }}
           />
         )}

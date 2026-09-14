@@ -53,6 +53,15 @@ export interface DesktopEncryption {
   decline(): Promise<EncryptionStatus>;
 }
 
+export interface DesktopCloudStatus {
+  mode: "local" | "cloud";
+  connecting: boolean;
+}
+
+export interface DesktopCloud {
+  status(): Promise<DesktopCloudStatus>;
+}
+
 export interface DesktopBridge {
   // Opens the local Amazon window (user signs in there if needed) and
   // resolves with orders whose order_date falls inside the window.
@@ -61,6 +70,9 @@ export interface DesktopBridge {
   appLock?: DesktopAppLock;
   // Present from desktop v0.2.0 on; optional for older shells.
   encryption?: DesktopEncryption;
+  // Present from desktop v0.2.0 on. This exposes only profile state, never the
+  // Cloud endpoint or session token.
+  cloud?: DesktopCloud;
 }
 
 declare global {

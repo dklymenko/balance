@@ -25,4 +25,7 @@ contextBridge.exposeInMainWorld("balanceDesktop", {
     disable: () => ipcRenderer.invoke("applock:disable"),
     lockNow: () => ipcRenderer.invoke("applock:lock-now"),
   },
+  cloud: {
+    status: () => ipcRenderer.invoke("cloud:status"),
+  },
 });

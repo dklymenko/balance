@@ -12,6 +12,7 @@ import {
 interface Props {
   accountCount: number;
   transactionCount: number;
+  isCloudProfile: boolean;
   // Parent refreshes accounts + ledger after the sample dataset lands.
   onSampleLoaded: () => void;
 }
@@ -20,7 +21,7 @@ interface Props {
 // plus a one-click sample dataset for new users who want to see reports before
 // entering their own data. Rendered by the Transactions home page for empty households;
 // disappears for good once every step is done or it is dismissed.
-export default function OnboardingChecklist({ accountCount, transactionCount, onSampleLoaded }: Props) {
+export default function OnboardingChecklist({ accountCount, transactionCount, isCloudProfile, onSampleLoaded }: Props) {
   const [dismissed, setDismissed] = useState(isOnboardingDismissed);
   // Read once per mount: completing step 3 counts on the next visit, which is
   // fine -- the point is persistence, not live tracking of another tab.
@@ -34,7 +35,8 @@ export default function OnboardingChecklist({ accountCount, transactionCount, on
 
   // Only greet genuinely new households. A household that already has data the
   // first time this renders never sees the checklist.
-  const eligible = isOnboardingStarted() || !(hasAccount && hasTx);
+  const populatedCloudProfile = isCloudProfile && hasAccount && hasTx;
+  const eligible = !populatedCloudProfile && (isOnboardingStarted() || !(hasAccount && hasTx));
   useEffect(() => {
     if (eligible && !dismissed && !allDone) markOnboardingStarted();
   }, [eligible, dismissed, allDone]);

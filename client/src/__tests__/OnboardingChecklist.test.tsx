@@ -9,6 +9,7 @@ function renderChecklist(over: Partial<Parameters<typeof OnboardingChecklist>[0]
       <OnboardingChecklist
         accountCount={0}
         transactionCount={0}
+        isCloudProfile={false}
         onSampleLoaded={vi.fn()}
         {...over}
       />
@@ -45,6 +46,22 @@ describe("OnboardingChecklist", () => {
     // Later visit: data exists but no report viewed yet → still shown.
     renderChecklist({ accountCount: 1, transactionCount: 5 });
     expect(screen.getAllByText("Welcome to Balance").length).toBeGreaterThan(0);
+  });
+
+  it("does not carry an empty-device welcome into a populated Cloud household", () => {
+    const firstRun = renderChecklist(); // enrollment begins against an empty replica
+    firstRun.unmount();
+    render(
+      <MemoryRouter>
+        <OnboardingChecklist
+          accountCount={3}
+          transactionCount={50}
+          isCloudProfile
+          onSampleLoaded={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByText("Welcome to Balance")).not.toBeInTheDocument();
   });
 
   it("dismissing persists across renders", () => {
