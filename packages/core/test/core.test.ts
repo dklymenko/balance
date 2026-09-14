@@ -8,7 +8,9 @@ import {
   isStorableCents,
   MAX_CENTS,
   parseAmountToCents,
+  SNAPSHOT_TRANSACTION_PAGE_LIMIT,
   validateArchive,
+  validateSnapshotResponse,
 } from "../src/index";
 
 describe("money and balances", () => {
@@ -191,6 +193,31 @@ describe("archive validation", () => {
         current_price_usd: MAX_CENTS,
       }],
     })).toThrow(/market value/);
+  });
+});
+
+describe("sync snapshot validation", () => {
+  const snapshot = (transactionCount: number) => ({
+    cursor: 1,
+    accounts: [],
+    categories: [],
+    tags: [],
+    transactions: Array.from({ length: transactionCount }, (_, index) => ({
+      uuid: `transaction-${index}`,
+    })),
+    account_adjustments: [],
+    tx_after: transactionCount || null,
+    has_more_transactions: transactionCount > 0,
+  });
+
+  it("accepts the production server's complete transaction page", () => {
+    expect(validateSnapshotResponse(snapshot(SNAPSHOT_TRANSACTION_PAGE_LIMIT)).transactions)
+      .toHaveLength(SNAPSHOT_TRANSACTION_PAGE_LIMIT);
+  });
+
+  it("still rejects an oversized transaction page", () => {
+    expect(() => validateSnapshotResponse(snapshot(SNAPSHOT_TRANSACTION_PAGE_LIMIT + 1)))
+      .toThrow(/transactions exceeds the row limit/);
   });
 });
 

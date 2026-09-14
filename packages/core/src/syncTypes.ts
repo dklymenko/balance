@@ -20,6 +20,12 @@ export const SYNC_ENTITIES: readonly SyncEntity[] = [
   "account", "category", "tag", "transaction", "account_adjustment",
 ];
 
+// The production sync server pages transaction snapshots in batches of 5,000.
+// Keep the per-response validator aligned with that wire contract; the client
+// separately caps a complete enrollment snapshot at 200,000 transactions and
+// every HTTP response at 10 MB.
+export const SNAPSHOT_TRANSACTION_PAGE_LIMIT = 5_000;
+
 // ---- Entity payloads (syncable fields only; balances never sync -- they are
 // recomputed from the ledger on each side) ----
 
@@ -279,7 +285,7 @@ export function validateSnapshotResponse(raw: unknown): SnapshotResponse {
     accounts: table("accounts", 2_000),
     categories: table("categories", 2_000),
     tags: table("tags", 5_000),
-    transactions: table("transactions", 1_000),
+    transactions: table("transactions", SNAPSHOT_TRANSACTION_PAGE_LIMIT),
     account_adjustments: table("account_adjustments", 20_000),
     tx_after: raw.tx_after as number | null,
     has_more_transactions: raw.has_more_transactions,
