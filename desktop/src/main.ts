@@ -457,6 +457,14 @@ ipcMain.handle("applock:lock-now", (event) => {
   return lockStatus();
 });
 
+ipcMain.handle("cloud:status", (event) => {
+  assertAppSender(event);
+  return {
+    mode: config?.mode === "cloud" ? "cloud" : "local",
+    connecting: config?.cloudTransition === "connecting",
+  };
+});
+
 // ---------------------------------------------------------------------------
 // Database key resolution (see keyStore.ts for the wrap model)
 
