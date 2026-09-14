@@ -29,6 +29,7 @@ build/
 desktop/build/*
 !desktop/build/icon.icns
 !desktop/build/icon.png
+!desktop/build/icon-v2.png
 server/client-dist/
 *.tgz
 

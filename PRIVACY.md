@@ -33,8 +33,13 @@ The following actions use the network only when you explicitly request them:
 - Check for Updates contacts GitHub for version metadata. It does not download,
   install, or execute repository changes.
 - Amazon order import opens Amazon in an isolated browser session and imports
-  only the order data shown for the date range you selected. Its sign-in
-  cookies are kept in a memory-only session and discarded when Balance quits.
+  only the order data shown for the date range you selected. Its dedicated
+  session persists on this Mac so you do not need to sign in on every launch.
+  Cookie values are encrypted using macOS Keychain-backed protection and are
+  never synced to Balance Cloud. Settings > Amazon sign-in can remove the
+  session's cookies, site storage, authentication cache, and browser cache.
+  Direct development launches keep the session in memory rather than writing
+  cookies without the packaged application's encryption protection.
 - Optional cloud sync contacts only the Balance sync service that a maintainer
   explicitly configures, and only after cloud mode is enabled and signed in.
 

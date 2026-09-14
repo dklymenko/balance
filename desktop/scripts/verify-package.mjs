@@ -56,10 +56,9 @@ const FUSE_DISABLED = "0".charCodeAt(0);
 const FUSE_ENABLED = "1".charCodeAt(0);
 const requiredFuses = new Map([
   [FuseV1Options.RunAsNode, FUSE_DISABLED],
-  // Unsigned source-built packages must not reach macOS Keychain before user
-  // opt-in. All sensitive auth partitions are memory-only, and the local UI
-  // uses a bearer header rather than cookies.
-  [FuseV1Options.EnableCookieEncryption, FUSE_DISABLED],
+  // The persistent, isolated Amazon session must never write plaintext cookie
+  // values into its Chromium profile.
+  [FuseV1Options.EnableCookieEncryption, FUSE_ENABLED],
   [FuseV1Options.EnableNodeOptionsEnvironmentVariable, FUSE_DISABLED],
   [FuseV1Options.EnableNodeCliInspectArguments, FUSE_DISABLED],
   [FuseV1Options.EnableEmbeddedAsarIntegrityValidation, FUSE_ENABLED],

@@ -1,18 +1,15 @@
 # Source checkouts can build unsigned local packages. Signing credentials are
 # intentionally not required by this repository.
 appId: com.dmytroklymenko.balance
-productName: Balance Desktop
-artifactName: Balance-Desktop-${version}-${arch}.${ext}
+productName: Balance
+artifactName: Balance-${version}-${arch}.${ext}
 afterPack: scripts/after-pack.cjs
 electronFuses:
   runAsNode: false
-  # This repository intentionally supports unsigned local packages. Electron's
-  # cookie-encryption fuse delegates to macOS Keychain; in an unsigned local
-  # package it can prompt before user opt-in and was observed to stall the first
-  # renderer navigation.
-  # Balance stores no local-auth cookie; third-party auth partitions are
-  # memory-only, so disabling this fuse does not put session cookies on disk.
-  enableCookieEncryption: false
+  # Amazon sign-in is kept in a dedicated persistent partition. Encrypt cookie
+  # values with OS cryptography backed by macOS Keychain. Unsigned source builds
+  # may ask for Keychain permission again after the application is rebuilt.
+  enableCookieEncryption: true
   enableNodeOptionsEnvironmentVariable: false
   enableNodeCliInspectArguments: false
   enableEmbeddedAsarIntegrityValidation: true
@@ -75,7 +72,7 @@ asarUnpack:
   - "node_modules/file-uri-to-path/**"
 mac:
   category: public.app-category.finance
-  icon: build/icon.png
+  icon: build/icon-v2.png
   hardenedRuntime: true
   notarize: true
   extendInfo:

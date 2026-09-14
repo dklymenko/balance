@@ -6,6 +6,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 import FontSizeToggle from "@/components/FontSizeToggle";
 import AppLockSection from "@/components/AppLockSection";
 import EncryptionSection from "@/components/EncryptionSection";
+import AmazonSessionSection from "@/components/AmazonSessionSection";
 import PageContainer from "@/components/PageContainer";
 import { useAdvancedFeatures, setAdvancedFeatures } from "@/lib/features";
 import { CURRENCIES } from "@/lib/currencies";
@@ -178,6 +179,8 @@ export default function Household() {
       <AppLockSection />
 
       <EncryptionSection />
+
+      <AmazonSessionSection />
 
       <section className="space-y-2">
         <h2 className="text-sm font-medium">{t("settings.experimental")}</h2>

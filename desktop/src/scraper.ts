@@ -3,11 +3,13 @@ import { extractionScript } from "./extract";
 import { loadSelectors } from "./selectors";
 import type { AmazonOrder, ScrapeWindow } from "./types";
 import { isAmazonNavigation } from "./navigation";
-import { AMAZON_PARTITION } from "./partitions";
+import { amazonPartitionFor } from "./partitions";
+import { flushAmazonSignIn } from "./amazonSession";
 
 // The scrape window is a real, visible browser the user signs in to; the
-// isolated session lasts only for this app run. Amazon cookies are never
-// persisted as Chromium state on disk and never leave the machine.
+// packaged app's isolated session persists between runs. Cookie values are
+// encrypted by Chromium using macOS Keychain-backed OS cryptography and never
+// enter the Balance UI, ledger, or sync engine. Development runs stay in memory.
 
 const ORDER_HISTORY_URL = "https://www.amazon.com/your-orders/orders";
 // Amazon paginates via ?startIndex=N (0-based, 10 per page).
@@ -20,13 +22,14 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export async function scrapeAmazonOrders(w: ScrapeWindow): Promise<AmazonOrder[]> {
   const selectors = loadSelectors();
+  const amazonPartition = amazonPartitionFor(app.isPackaged);
 
   const win = new BrowserWindow({
     width: 1280,
     height: 900,
     title: "Balance -- Amazon order sync",
     webPreferences: {
-      partition: AMAZON_PARTITION,
+      partition: amazonPartition,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -40,6 +43,7 @@ export async function scrapeAmazonOrders(w: ScrapeWindow): Promise<AmazonOrder[]
   win.webContents.on("will-navigate", blockNonAmazon);
   win.webContents.on("will-redirect", blockNonAmazon);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const amazonSession = win.webContents.session;
 
   try {
     const collected: AmazonOrder[] = [];
@@ -68,7 +72,11 @@ export async function scrapeAmazonOrders(w: ScrapeWindow): Promise<AmazonOrder[]
 
     return collected;
   } finally {
-    if (!win.isDestroyed()) win.destroy();
+    try {
+      await flushAmazonSignIn(amazonSession);
+    } finally {
+      if (!win.isDestroyed()) win.destroy();
+    }
   }
 }
 

@@ -173,7 +173,8 @@ export default function PendingAmazonDialog({ open, onClose, onImport }: Props) 
         <p className="text-sm text-muted-foreground">
           Paste pending Amazon charges from your bank. Balance opens your order history in a private
           desktop window, matches each charge to likely items, and lets you review transactions before
-          adding them.
+          adding them. In the packaged app, your Amazon sign-in cookies are encrypted and remembered
+          on this Mac; you can remove them any time in Settings.
         </p>
 
         <textarea
