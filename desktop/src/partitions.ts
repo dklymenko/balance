@@ -1,6 +1,13 @@
-// The app UI keeps only its own harmless browser preferences between runs.
-// Third-party sign-in sessions are deliberately memory-only: an Amazon or
-// Cloud auth cookie must never be left as plaintext Chromium state on disk.
+// Amazon uses its own persistent partition so its Keychain-encrypted cookies
+// survive app restarts. Cloud authentication remains memory-only and separate;
+// no Amazon browser state is exposed to the UI or sync engine.
 export const LOCAL_PARTITION = "persist:balance-local";
-export const AMAZON_PARTITION = "amazon";
+export const AMAZON_PARTITION = "persist:balance-amazon";
 export const CLOUD_AUTH_PARTITION = "balance-cloud-auth";
+
+// Cookie encryption is an Electron fuse, so it exists in the packaged app but
+// not in the stock Electron binary used by `npm run start`. Never persist the
+// Amazon session when that protection is unavailable.
+export function amazonPartitionFor(isPackaged: boolean): string {
+  return isPackaged ? AMAZON_PARTITION : "amazon";
+}

@@ -62,10 +62,17 @@ export interface DesktopCloud {
   status(): Promise<DesktopCloudStatus>;
 }
 
+export interface DesktopAmazonSession {
+  forget(): Promise<{ forgotten: boolean }>;
+}
+
 export interface DesktopBridge {
   // Opens the local Amazon window (user signs in there if needed) and
   // resolves with orders whose order_date falls inside the window.
   scrapeAmazon(window: ScrapeWindow): Promise<DesktopAmazonOrder[]>;
+  // Controls only the isolated Amazon browser profile. No cookies or tokens
+  // cross this bridge.
+  amazonSession?: DesktopAmazonSession;
   // Present from desktop v0.3.2 on; optional for older shells.
   appLock?: DesktopAppLock;
   // Present from desktop v0.2.0 on; optional for older shells.
@@ -105,4 +112,8 @@ export function getDesktopAppLock(): DesktopAppLock | null {
 
 export function getDesktopEncryption(): DesktopEncryption | null {
   return getDesktopBridge()?.encryption ?? null;
+}
+
+export function getDesktopAmazonSession(): DesktopAmazonSession | null {
+  return getDesktopBridge()?.amazonSession ?? null;
 }

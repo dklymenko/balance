@@ -10,6 +10,9 @@ import type { ScrapeWindow } from "./types";
 // web content never sees a password.
 contextBridge.exposeInMainWorld("balanceDesktop", {
   scrapeAmazon: (window: ScrapeWindow) => ipcRenderer.invoke("amazon:scrape", window),
+  amazonSession: {
+    forget: () => ipcRenderer.invoke("amazon:forget-sign-in"),
+  },
   // encryption: at-rest encryption is opt-in. The page can read the state and
   // ask the shell to turn it on; the key itself never crosses this boundary,
   // and the macOS permission prompt is raised by the main process.

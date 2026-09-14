@@ -7,7 +7,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { scrapeAmazonOrders } from "./scraper";
 import { parseScrapeWindow } from "./scrapeWindow";
-import { AMAZON_PARTITION, CLOUD_AUTH_PARTITION, LOCAL_PARTITION } from "./partitions";
+import { amazonPartitionFor, CLOUD_AUTH_PARTITION, LOCAL_PARTITION } from "./partitions";
+import { forgetAmazonSignIn } from "./amazonSession";
 import {
   cloudAvailable, cloudEndpoint, readConfig, reconcileConfigWithSyncMode, writeConfig,
   type AppConfig, type AppMode,
@@ -83,11 +84,12 @@ const saasOrigin = (): string => {
 const configPath = (): string => path.join(app.getPath("userData"), "config.json");
 const dbPath = (): string => path.join(app.getPath("userData"), "balance.db");
 const backupDir = (): string => path.join(app.getPath("userData"), "backups");
+const amazonPartition = amazonPartitionFor(app.isPackaged);
 
 // Strip the Electron and app tokens from the default UA so non-shell
-// requests (e.g. the Amazon scrape window) look like plain Chrome. The app
-// token is "balance-desktop/x" in dev and "Balance-Desktop/x" when packaged.
-app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|balance[- ]desktop)\/\S+/gi, "");
+// requests (e.g. the Amazon scrape window) look like plain Chrome. Strip both
+// the current Balance token and the legacy Balance Desktop spelling.
+app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|balance(?:[- ]desktop)?)\/\S+/gi, "");
 
 let mainWindow: BrowserWindow | null = null;
 let signInWindow: BrowserWindow | null = null;
@@ -1106,7 +1108,7 @@ async function boot(): Promise<void> {
   for (const target of [
     session.defaultSession,
     session.fromPartition(LOCAL_PARTITION),
-    session.fromPartition(AMAZON_PARTITION),
+    session.fromPartition(amazonPartition),
     session.fromPartition(CLOUD_AUTH_PARTITION),
   ]) {
     target.setPermissionCheckHandler(() => false);
@@ -1369,9 +1371,7 @@ let scrapeInFlight = false;
 ipcMain.handle("amazon:scrape", async (event, rawWindow: unknown) => {
   // Only the Balance app loaded in our own shell may drive the scraper. The
   // sender must match the active app origin.
-  if (!event.senderFrame || new URL(event.senderFrame.url).origin !== appOrigin) {
-    throw new Error("Unauthorized sender");
-  }
+  assertAppSender(event);
   const scrapeWindow = parseScrapeWindow(rawWindow);
   if (!scrapeWindow) {
     throw new Error("scrapeAmazon expects real YYYY-MM-DD dates with oldestIso no later than newestIso");
@@ -1385,6 +1385,26 @@ ipcMain.handle("amazon:scrape", async (event, rawWindow: unknown) => {
   } finally {
     scrapeInFlight = false;
   }
+});
+
+ipcMain.handle("amazon:forget-sign-in", async (event) => {
+  assertAppSender(event);
+  if (scrapeInFlight) throw new Error("Wait for the current Amazon sync to finish");
+
+  const { response } = await dialog.showMessageBox({
+    type: "warning",
+    message: "Forget Amazon sign-in?",
+    detail:
+      "Balance will remove Amazon cookies and site data saved on this Mac. " +
+      "You will need to sign in the next time you match Amazon charges.",
+    buttons: ["Forget sign-in", "Cancel"],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (response !== 0) return { forgotten: false };
+
+  await forgetAmazonSignIn(session.fromPartition(amazonPartition));
+  return { forgotten: true };
 });
 
 // ---------------------------------------------------------------------------

@@ -57,9 +57,13 @@ that the charge was the kids' shoes, and categorize it properly.
 The matching handles the awkward parts: split shipments, deferred billing, and
 orders that bill days after you place them. You sign in directly on Amazon's
 site in a dedicated desktop window. Balance never reads your password or sends
-your Amazon session data to a Balance service or another third party. That
-dedicated sign-in session lasts only until you quit Balance, so Amazon cookies
-are not kept on disk between app runs.
+your Amazon session data to a Balance service or another third party. Balance
+remembers the dedicated Amazon session on your Mac, with cookie values encrypted
+using macOS Keychain-backed protection. You can remove its cookies and site data
+at any time from Settings. Unsigned source builds may ask for Keychain access
+again after a rebuild. Direct development launches keep the Amazon session in
+memory instead, because the stock development Electron binary does not enable
+cookie encryption.
 
 ### Reports that answer real questions
 
