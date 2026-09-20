@@ -34,4 +34,12 @@ describe("packaged application identity", () => {
   it("encrypts cookies written by persistent browser sessions", () => {
     expect(builderConfig).toMatch(/^\s+enableCookieEncryption: true$/m);
   });
+
+  it("keeps the embedded server's complete runtime dependency tree reachable", () => {
+    // The utility-process entry and first-party packages are unpacked so they
+    // can read migrations and native bindings from real files. Their package
+    // resolution therefore starts in app.asar.unpacked as well; leaving pure
+    // JavaScript dependencies inside app.asar makes the server die at launch.
+    expect(builderConfig).toMatch(/^\s+- "node_modules\/\*\*"$/m);
+  });
 });

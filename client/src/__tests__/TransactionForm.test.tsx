@@ -1,6 +1,7 @@
 import { type ComponentProps } from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import TransactionForm, { type Account } from "@/components/TransactionForm";
 
 const ACCOUNTS: Account[] = [
@@ -16,6 +17,10 @@ function renderForm(props: Partial<ComponentProps<typeof TransactionForm>> = {})
     <TransactionForm open onClose={() => {}} onSave={onSave} accounts={ACCOUNTS} categories={[]} allTags={ALL_TAGS} defaultAccountId={1} {...props} />,
   );
   return { onSave };
+}
+
+function expectBefore(first: Element, second: Element) {
+  expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 }
 
 describe("TransactionForm -- exclude from reports (advanced flag, not shown on the form)", () => {
@@ -112,6 +117,48 @@ describe("TransactionForm -- amount and transfer integrity", () => {
       type: "transfer",
     });
   });
+
+  it("accepts a currency symbol that matches the selected account", async () => {
+    const { onSave } = renderForm();
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: "$27" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ amount_fx: 27, amount_usd: 27 });
+  });
+
+  it("shows the account currency when a different currency symbol is entered", () => {
+    renderForm();
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: "€23.50" } });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("USD only");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
+  it("uses the selected account's currency in the mismatch error", () => {
+    renderForm({
+      accounts: [{ id: 3, name: "UAH checking", base_currency: "UAH", exchange_rate: 0.024, account_type: "Checking", liquidity_type: "Liquid", is_default: true, is_active: true }],
+      defaultAccountId: 3,
+    });
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: "€23.50" } });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("UAH only");
+  });
+
+  it("submits with Enter only after a category is selected", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderForm({ categories: [{ id: 10, name: "Food", parent_id: null }] });
+    const amount = screen.getByLabelText(/amount/i);
+
+    await user.type(amount, "27{Enter}");
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Food" }));
+    await user.click(amount);
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+  });
 });
 
 describe("TransactionForm -- accessible field names", () => {
@@ -128,6 +175,25 @@ describe("TransactionForm -- accessible field names", () => {
 
     expect(screen.getByRole("combobox", { name: "From Account" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "To Account" })).toBeInTheDocument();
+  });
+});
+
+describe("TransactionForm -- category search", () => {
+  it("ranks a matching top-level category ahead of matching sub-categories", async () => {
+    renderForm({
+      categories: [
+        { id: 1, name: "Baby", parent_id: null },
+        { id: 2, name: "Food", parent_id: null },
+        { id: 3, name: "Baby food", parent_id: 1 },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Category" }));
+    fireEvent.change(await screen.findByPlaceholderText("Search categories…"), { target: { value: "food" } });
+
+    const topLevel = await screen.findByText("Food", { selector: "[cmdk-item]" });
+    const child = await screen.findByText("Baby food", { selector: "[cmdk-item]" });
+    expectBefore(topLevel, child);
   });
 });
 

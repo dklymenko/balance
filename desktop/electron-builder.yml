@@ -58,18 +58,13 @@ extraResources:
     to: SECURITY.md
   - from: ../THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
-# The embedded server must exist as real files on disk, not asar entries:
-# the utilityProcess child reads .sql migrations and serves the client build
-# from the filesystem, and better-sqlite3 loads a native binding.
+# The embedded server runs from real files so the utility process can read SQL
+# migrations, serve the client build, and load native SQLite bindings. Module
+# resolution starts from that unpacked tree, so its complete production
+# dependency closure must live there too; a partial list makes the packaged app
+# pass compilation but fail at launch on the first dependency left in app.asar.
 asarUnpack:
-  - "node_modules/@balance/server/**"
-  - "node_modules/@balance/sync-client/**"
-  - "node_modules/@balance/core/**"
-  - "node_modules/better-sqlite3/**"
-  - "node_modules/better-sqlite3-multiple-ciphers/**"
-  - "node_modules/drizzle-orm/**"
-  - "node_modules/bindings/**"
-  - "node_modules/file-uri-to-path/**"
+  - "node_modules/**"
 mac:
   category: public.app-category.finance
   icon: build/icon-v2.png

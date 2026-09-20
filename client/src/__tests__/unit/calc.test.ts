@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evalExpression, hasOperator } from "@/lib/calc";
+import { evalExpression, hasOperator, parseAmountInput } from "@/lib/calc";
 
 describe("evalExpression", () => {
   it("parses a plain number", () => {
@@ -36,5 +36,22 @@ describe("hasOperator", () => {
     expect(hasOperator("12+3")).toBe(true);
     expect(hasOperator("50")).toBe(false);
     expect(hasOperator("-5")).toBe(false);
+  });
+});
+
+describe("parseAmountInput", () => {
+  it("accepts a matching currency symbol and preserves calculator expressions", () => {
+    expect(parseAmountInput("$27", "USD")).toEqual({ value: 27, currencyError: null });
+    expect(parseAmountInput("€20+3.50", "EUR")).toEqual({ value: 23.5, currencyError: null });
+    expect(parseAmountInput("₴100", "UAH")).toEqual({ value: 100, currencyError: null });
+  });
+
+  it("rejects a symbol that does not match the selected account currency", () => {
+    expect(parseAmountInput("€23.50", "USD")).toEqual({ value: null, currencyError: "USD only" });
+    expect(parseAmountInput("€23.50", "UAH")).toEqual({ value: null, currencyError: "UAH only" });
+  });
+
+  it("keeps unprefixed amounts backward-compatible", () => {
+    expect(parseAmountInput("27+13-9", "USD")).toEqual({ value: 31, currencyError: null });
   });
 });

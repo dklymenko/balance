@@ -1,4 +1,6 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { listPackage } from "@electron/asar";
@@ -65,6 +67,64 @@ const requiredFuses = new Map([
   [FuseV1Options.OnlyLoadAppFromAsar, FUSE_ENABLED],
   [FuseV1Options.GrantFileProtocolExtraPrivileges, FUSE_DISABLED],
 ]);
+
+async function smokeTestApp(app) {
+  if (process.platform !== "darwin") return;
+
+  const info = plist.parse(readFileSync(join(app, "Contents", "Info.plist"), "utf8"));
+  const executable = join(app, "Contents", "MacOS", info.CFBundleExecutable);
+  const profile = mkdtempSync(join(tmpdir(), "balance-package-smoke-"));
+  writeFileSync(
+    join(profile, "config.json"),
+    JSON.stringify({ mode: "local", encryptionDeclined: true }),
+    { mode: 0o600 },
+  );
+
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn(executable, [], {
+        env: { ...process.env, BALANCE_USER_DATA: profile, BALANCE_CLOUD: "0" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      let listening = false;
+      let timedOut = false;
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        setTimeout(() => child.kill("SIGKILL"), 2_000).unref();
+      }, 25_000);
+
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+        if (!listening && stdout.includes("[desktop] Balance server on http://127.0.0.1:")) {
+          listening = true;
+          child.kill("SIGTERM");
+          setTimeout(() => child.kill("SIGKILL"), 2_000).unref();
+        }
+      });
+      child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.on("exit", (code, signal) => {
+        clearTimeout(timer);
+        if (listening) return resolve();
+        const detail = `${stdout}\n${stderr}`.trim();
+        reject(new Error(
+          timedOut
+            ? `Packaged app did not start its local server within 25 seconds${detail ? `:\n${detail}` : ""}`
+            : `Packaged app exited before its local server listened (code ${code}, signal ${signal})${detail ? `:\n${detail}` : ""}`,
+        ));
+      });
+    });
+  } finally {
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
 
 for (const app of apps) {
   const infoPath = join(app, "Contents", "Info.plist");
@@ -146,6 +206,8 @@ if (violations.length > 0) {
   throw new Error(`Unsafe package contents:\n${violations.slice(0, 50).join("\n")}`);
 }
 
+for (const app of apps) await smokeTestApp(app);
+
 console.log(
-  `Verified ${asars.length} package and ${apps.length} application bundle: no local data, internal instructions, generic icon, missing notices, unsafe Electron fuses, or unsafe macOS permissions.`,
+  `Verified ${asars.length} package and ${apps.length} application bundle: clean contents, safe identity and fuses, and a successful packaged local-server boot.`,
 );
