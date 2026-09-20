@@ -58,6 +58,34 @@ export function evalExpression(raw: string): number | null {
   return Number.isFinite(acc) ? acc : null;
 }
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  "$": "USD",
+  "€": "EUR",
+  "£": "GBP",
+  "₴": "UAH",
+};
+
+export interface ParsedAmountInput {
+  value: number | null;
+  currencyError: string | null;
+}
+
+// Accept an optional leading currency symbol. A matching symbol is ignored for
+// calculation; a symbol for another currency is surfaced as a clear validation
+// error tied to the selected account.
+export function parseAmountInput(raw: string, accountCurrency: string): ParsedAmountInput {
+  const input = (raw ?? "").trim();
+  const symbol = input[0];
+  const symbolCurrency = CURRENCY_SYMBOLS[symbol];
+
+  if (symbolCurrency && symbolCurrency !== accountCurrency) {
+    return { value: null, currencyError: `${accountCurrency} only` };
+  }
+
+  const expression = symbolCurrency ? input.slice(1).trim() : input;
+  return { value: evalExpression(expression), currencyError: null };
+}
+
 // True when the string still has a pending operator (so the amount shown is an
 // in-progress expression rather than a final value). Used to show a live "= result".
 export function hasOperator(raw: string): boolean {

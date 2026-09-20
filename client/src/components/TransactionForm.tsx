@@ -30,7 +30,7 @@ import {
 import TagPicker from "@/components/TagPicker";
 import { txTypeLabel } from "@/lib/txType";
 import { ACCOUNT_GROUPS } from "@/lib/accountGroups";
-import { evalExpression, hasOperator } from "@/lib/calc";
+import { hasOperator, parseAmountInput } from "@/lib/calc";
 import { getRecentCategoryIds, pushRecentCategory } from "@/lib/recentCategories";
 import { categoryColor } from "@/lib/categoryColors";
 
@@ -155,6 +155,7 @@ export default function TransactionForm({
   const [toAccountId, setToAccountId] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
+  const [categorySearch, setCategorySearch] = useState("");
   const [date, setDate] = useState(localDateStr(0));
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -191,6 +192,7 @@ export default function TransactionForm({
         setToAccountId("");
       }
       setCategoryOpen(false);
+      setCategorySearch("");
       setSaveError(null);
     }
   }, [open, initial, defaultAccountId, accounts, defaultType]);
@@ -213,8 +215,35 @@ export default function TransactionForm({
       : selectedCategory.name
     : "Select category…";
 
-  const parentCategories = categories.filter(c => c.parent_id === null);
+  const parentCategories = useMemo(() => categories.filter(c => c.parent_id === null), [categories]);
   const categoryById = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
+
+  // Put the strongest top-level match first while retaining the existing grouped
+  // list. This keeps "Food" ahead of a nested result such as "Baby food".
+  const rankedParentCategories = useMemo(() => {
+    const query = categorySearch.trim().toLocaleLowerCase();
+    if (!query) return parentCategories;
+
+    const score = (name: string, topLevel: boolean) => {
+      const normalized = name.toLocaleLowerCase();
+      if (normalized === query) return topLevel ? 0 : 1;
+      if (normalized.startsWith(query)) return topLevel ? 2 : 3;
+      if (normalized.includes(query)) return topLevel ? 4 : 5;
+      return Number.POSITIVE_INFINITY;
+    };
+
+    return parentCategories
+      .map((parent, index) => {
+        const children = categories.filter(c => c.parent_id === parent.id);
+        const bestScore = Math.min(
+          score(parent.name, true),
+          ...children.map(child => score(child.name, false)),
+        );
+        return { parent, index, bestScore };
+      })
+      .sort((a, b) => a.bestScore - b.bestScore || a.index - b.index)
+      .map(({ parent }) => parent);
+  }, [categories, categorySearch, parentCategories]);
 
   // Quick-pick chips: the selected category (if any) first, then recently used
   // categories, padded with top-level categories -- deduped, capped at 6.
@@ -230,7 +259,10 @@ export default function TransactionForm({
     return out.slice(0, 6);
   }, [selectedCategory, categoryById, parentCategories]);
 
-  const amountValue = evalExpression(amount);
+  const { value: amountValue, currencyError } = parseAmountInput(
+    amount,
+    selectedAccount?.base_currency ?? "USD",
+  );
   const amountValid = amountValue !== null && amountValue > 0;
 
   const canSubmit = !!accountId && amountValid && (
@@ -266,13 +298,25 @@ export default function TransactionForm({
     }
   }
 
+  function handleFormKeyDown(e: React.KeyboardEvent<HTMLFormElement>) {
+    if (e.key !== "Enter" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+
+    const target = e.target as HTMLElement;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.closest("[cmdk-input-wrapper]") || target.placeholder === "New label…") return;
+
+    // Keyboard save is deliberately stricter than the button: it only fires for
+    // categorized income/expense entries. Transfers have no category field.
+    if (!canSubmit || categoryId === null || isTransfer) e.preventDefault();
+  }
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md max-h-[92vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title ?? "Add Transaction"}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-4">
 
           {/* Amount -- the most important field: shown first and large. Accepts a
               plain number or a chained expression ("27+13-9"), calculated live. */}
@@ -290,6 +334,8 @@ export default function TransactionForm({
                 placeholder="0.00 or 27+13-9"
                 autoComplete="off"
                 required
+                aria-invalid={currencyError ? true : undefined}
+                aria-describedby={currencyError ? "amount-currency-error" : undefined}
                 className="h-12 flex-1 text-2xl font-semibold tabular-nums"
               />
               {hasOperator(amount) && amountValue !== null && (
@@ -298,6 +344,11 @@ export default function TransactionForm({
                 </span>
               )}
             </div>
+            {currencyError && (
+              <p id="amount-currency-error" role="alert" className="text-sm text-destructive">
+                {currencyError}
+              </p>
+            )}
             {isNonUSD && (
               <div className="pt-1">
                 <Label htmlFor="rate" className="text-xs text-muted-foreground">Exchange Rate</Label>
@@ -312,6 +363,45 @@ export default function TransactionForm({
               </div>
             )}
           </div>
+
+          <div className="space-y-1.5">
+            <Label>Type</Label>
+            <Select value={type} onValueChange={(v) => setType(v as typeof type)} disabled={isEditing}>
+              <SelectTrigger aria-label="Type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="debit" disabled={isIncomeCategory}>{txTypeLabel("debit")}</SelectItem>
+                <SelectItem value="credit">{txTypeLabel("credit")}</SelectItem>
+                <SelectItem value="transfer">{txTypeLabel("transfer")}</SelectItem>
+              </SelectContent>
+            </Select>
+            {isIncomeCategory && (
+              <p className="text-xs text-muted-foreground">Income category -- income only.</p>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{isTransfer ? "From Account" : "Account"}</Label>
+            <AccountSelect
+              value={accountId}
+              onChange={setAccountId}
+              accounts={accounts}
+              placeholder="Select account"
+              ariaLabel={isTransfer ? "From Account" : "Account"}
+            />
+          </div>
+
+          {isTransfer && (
+            <div className="space-y-1.5">
+              <Label>To Account</Label>
+              <AccountSelect
+                value={toAccountId}
+                onChange={setToAccountId}
+                accounts={accounts}
+                placeholder="Select account"
+                ariaLabel="To Account"
+              />
+            </div>
+          )}
 
           {/* Category (required) sits above Description (optional). */}
           {!isTransfer && (
@@ -340,7 +430,13 @@ export default function TransactionForm({
                   })}
                 </div>
               )}
-              <Popover open={categoryOpen} onOpenChange={setCategoryOpen}>
+              <Popover
+                open={categoryOpen}
+                onOpenChange={(nextOpen) => {
+                  setCategoryOpen(nextOpen);
+                  if (!nextOpen) setCategorySearch("");
+                }}
+              >
                 <PopoverTrigger asChild>
                   <Button
                     type="button"
@@ -359,10 +455,14 @@ export default function TransactionForm({
                   align="start"
                 >
                   <Command>
-                    <CommandInput placeholder="Search categories…" />
+                    <CommandInput
+                      placeholder="Search categories…"
+                      value={categorySearch}
+                      onValueChange={setCategorySearch}
+                    />
                     <CommandList>
                       <CommandEmpty>No category found.</CommandEmpty>
-                      {parentCategories.map((parent) => {
+                      {rankedParentCategories.map((parent) => {
                         const children = categories.filter(c => c.parent_id === parent.id);
                         return (
                           <CommandGroup key={parent.id} heading={parent.name}>
@@ -413,45 +513,6 @@ export default function TransactionForm({
               </div>
             </div>
           )}
-
-          <div className="space-y-1.5">
-            <Label>{isTransfer ? "From Account" : "Account"}</Label>
-            <AccountSelect
-              value={accountId}
-              onChange={setAccountId}
-              accounts={accounts}
-              placeholder="Select account"
-              ariaLabel={isTransfer ? "From Account" : "Account"}
-            />
-          </div>
-
-          {isTransfer && (
-            <div className="space-y-1.5">
-              <Label>To Account</Label>
-              <AccountSelect
-                value={toAccountId}
-                onChange={setToAccountId}
-                accounts={accounts}
-                placeholder="Select account"
-                ariaLabel="To Account"
-              />
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <Label>Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v as typeof type)} disabled={isEditing}>
-              <SelectTrigger aria-label="Type"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="debit" disabled={isIncomeCategory}>{txTypeLabel("debit")}</SelectItem>
-                <SelectItem value="credit">{txTypeLabel("credit")}</SelectItem>
-                <SelectItem value="transfer">{txTypeLabel("transfer")}</SelectItem>
-              </SelectContent>
-            </Select>
-            {isIncomeCategory && (
-              <p className="text-xs text-muted-foreground">Income category -- income only.</p>
-            )}
-          </div>
 
           {/* Date -- Today / Yesterday quick picks (device time), plus a full picker. */}
           <div className="space-y-1.5">
