@@ -83,7 +83,7 @@ describe("ledger change hook coverage", () => {
     expect((await request(restored.app).get("/api/accounts")).body.map((row: { id: number }) => row.id)).toContain(account.id);
   });
 
-  it("accounts: create (with opening balance), patch, adjust, reorder, delete", async () => {
+  it("accounts: create (with opening balance), patch, correct, reorder, delete", async () => {
     const { app } = await makeApp();
     capture();
 
@@ -96,8 +96,8 @@ describe("ledger change hook coverage", () => {
     expect(captured.some((c) => c.entity === "account" && c.op === "upsert")).toBe(true);
 
     captured.length = 0;
-    await request(app).patch(`/api/accounts/${created.id}`).send({ balance: 55, reason: "Reconciled" });
-    expect(captured.some((c) => c.entity === "account_adjustment")).toBe(true);
+    await request(app).post(`/api/accounts/${created.id}/correct`).send({ balance: 55, reason: "Reconciled", date: "2026-09-20" });
+    expect(captured.some((c) => c.entity === "transaction" && c.op === "upsert")).toBe(true);
 
     captured.length = 0;
     await request(app).patch("/api/accounts/reorder").send({ order: [{ id: created.id, sort_order: 2 }] });

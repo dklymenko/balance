@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { balanceClass } from "@/lib/money";
 import AccountForm, { type AccountPayload } from "@/components/AccountForm";
+import BalanceCorrectionDialog, { type BalanceCorrectionPayload } from "@/components/BalanceCorrectionDialog";
 import PageContainer from "@/components/PageContainer";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useT } from "@/lib/i18n";
@@ -44,6 +45,7 @@ export default function Accounts() {
   const [showInactive, setShowInactive] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<Account | null>(null);
   const [baseCurrency, setBaseCurrency] = useState("USD");
   const [actionError, setActionError] = useState<string | null>(null);
   const t = useT();
@@ -109,6 +111,22 @@ export default function Accounts() {
       setDeleteTarget(null);
       setActionError("Couldn't delete the account. Please try again.");
     }
+  }
+
+  async function handleCorrection(data: BalanceCorrectionPayload) {
+    if (!correctionTarget) return;
+    const res = await fetch(`/api/accounts/${correctionTarget.id}/correct`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error ?? "Couldn't correct the balance.");
+    }
+    await loadAccounts();
+    setCorrectionTarget(null);
+    setActionError(null);
   }
 
   async function handleDragEnd(event: DragEndEvent, groupKey: GroupKey) {
@@ -299,7 +317,18 @@ export default function Accounts() {
         initial={editing ?? undefined}
         title={editing ? "Edit Account" : "Add Account"}
         isEdit={!!editing}
+        onCorrectBalance={editing ? () => {
+          setCorrectionTarget(editing);
+          setFormOpen(false);
+          setEditing(null);
+        } : undefined}
         defaultCurrency={baseCurrency}
+      />
+
+      <BalanceCorrectionDialog
+        account={correctionTarget}
+        onClose={() => setCorrectionTarget(null)}
+        onSave={handleCorrection}
       />
 
       {/* Delete confirmation */}

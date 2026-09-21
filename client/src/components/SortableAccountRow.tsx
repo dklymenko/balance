@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { AlertTriangle, GripVertical, Trash2 } from "lucide-react";
+import { Clock3, GripVertical, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { balanceClass } from "@/lib/money";
 import { showTypeBadge } from "@/lib/accountTypeLabels";
@@ -28,7 +28,15 @@ export interface Account {
   is_default?: boolean;
   is_active?: boolean;
   exclude_from_reports?: boolean;
-  has_recent_adjustment?: boolean;
+  last_activity_at?: string | null;
+}
+
+export const STALE_ACCOUNT_DAYS = 14;
+
+export function isAccountStale(account: Pick<Account, "is_active" | "last_activity_at">, now = Date.now()): boolean {
+  if (account.is_active === false || !account.last_activity_at) return false;
+  const updatedAt = Date.parse(account.last_activity_at);
+  return Number.isFinite(updatedAt) && now - updatedAt >= STALE_ACCOUNT_DAYS * 24 * 60 * 60 * 1000;
 }
 
 const USD = new Intl.NumberFormat("en-US", {
@@ -97,7 +105,7 @@ export default function SortableAccountRow({ account, editMode = false, onEdit, 
       <button
         type="button"
         onClick={() => onEdit(account)}
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 py-3 text-left"
+        className="flex min-w-0 flex-1 items-center justify-between gap-3 py-3 text-left lg:grid lg:grid-cols-[minmax(0,15rem)_auto] lg:justify-start lg:gap-6"
       >
         <div className="min-w-0 space-y-1">
           <p className={`truncate text-[15px] font-medium leading-none ${account.is_active === false ? "text-muted-foreground" : ""}`}>
@@ -115,9 +123,9 @@ export default function SortableAccountRow({ account, editMode = false, onEdit, 
             {account.ticker && (
               <Badge variant="secondary" className="text-xs">{account.ticker}</Badge>
             )}
-            {account.has_recent_adjustment && (
-              <Badge variant="destructive" className="text-xs gap-1">
-                <AlertTriangle className="w-3 h-3" /> Manual adj.
+            {isAccountStale(account) && (
+              <Badge variant="outline" className="gap-1 border-amber-500/60 text-xs text-amber-700 dark:text-amber-300">
+                <Clock3 className="h-3 w-3" /> Not updated 14d+
               </Badge>
             )}
           </div>

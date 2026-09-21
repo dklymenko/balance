@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import request from "supertest";
 import { createApp } from "../../app.js";
 import { createTestDb } from "../../test/db.js";
-import { accounts, accountAdjustments } from "../../db/schema.js";
+import { accounts, accountAdjustments, categories, transactions } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
 
 async function makeApp() {
@@ -38,6 +38,7 @@ describe("GET /api/accounts", () => {
     const res = await request(app).get("/api/accounts");
     expect(res.body).toHaveLength(1);
     expect(res.body[0].name).toBe("Test Checking");
+    expect(Number.isNaN(Date.parse(res.body[0].last_activity_at))).toBe(false);
   });
 
   it("includes has_recent_adjustment as false by default", async () => {
@@ -83,55 +84,47 @@ describe("PATCH /api/accounts/:id", () => {
     expect(res.body.name).toBe("Updated");
   });
 
-  it("rejects balance change without reason", async () => {
+  it("rejects direct balance changes even when a reason is supplied", async () => {
     const { app } = await makeApp();
     const created = (await request(app).post("/api/accounts").send(BASE_ACCOUNT)).body;
-    const res = await request(app).patch(`/api/accounts/${created.id}`).send({ balance: 500 });
+    const res = await request(app).patch(`/api/accounts/${created.id}`).send({ balance: 500, reason: "reconcile" });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/reason/);
+    expect(res.body.error).toMatch(/correction transaction/);
   });
 
-  it("accepts balance change with reason and logs adjustment", async () => {
+  it("corrects the balance with an excluded ledger transaction", async () => {
     const { app, db } = await makeApp();
     const created = (await request(app).post("/api/accounts").send(BASE_ACCOUNT)).body;
     const res = await request(app)
-      .patch(`/api/accounts/${created.id}`)
-      .send({ balance: 1000, reason: "Opening reconciliation" });
-    expect(res.status).toBe(200);
+      .post(`/api/accounts/${created.id}/correct`)
+      .send({ balance: 1000, reason: "Statement reconciliation", date: "2026-09-20" });
+    expect(res.status).toBe(201);
     expect(res.body.balance).toBe(1000);
 
-    const adj = await db.select().from(accountAdjustments).where(eq(accountAdjustments.account_id, created.id));
-    expect(adj).toHaveLength(1);
-    expect(adj[0].old_balance).toBe(0); // cents
-    expect(adj[0].new_balance).toBe(100000); // stored as integer cents
-    expect(adj[0].reason).toBe("Opening reconciliation");
-  });
-
-  it("serializes concurrent balance reconciliations without adding both targets", async () => {
-    const { app } = await makeApp();
-    const created = (await request(app).post("/api/accounts").send(BASE_ACCOUNT)).body;
-    const [first, second] = await Promise.all([
-      request(app).patch(`/api/accounts/${created.id}`).send({ balance: 100, reason: "first" }),
-      request(app).patch(`/api/accounts/${created.id}`).send({ balance: 200, reason: "second" }),
-    ]);
-    expect([first.status, second.status]).toEqual([200, 200]);
-    const account = (await request(app).get("/api/accounts")).body[0];
-    expect(account.balance).toBe(200);
+    const [tx] = await db.select().from(transactions).where(eq(transactions.id, res.body.transaction_id));
+    const [category] = await db.select().from(categories).where(eq(categories.id, tx.category_id!));
+    expect(tx.type).toBe("credit");
+    expect(tx.amount_fx).toBe(100000);
+    expect(tx.description).toBe("Statement reconciliation");
+    expect(tx.date).toBe("2026-09-20");
+    expect(tx.exclude_from_reports).toBe(true);
+    expect(category.name).toBe("Correction");
+    expect((await request(app).get("/api/accounts")).body[0].balance).toBe(1000);
     const verification = await request(app).get(`/api/accounts/${created.id}/verify`);
     expect(verification.body.drift).toBe(0);
   });
 
-  it("returns has_recent_adjustment=true after balance adjustment (and only there)", async () => {
+  it("does not flag a correction as a manual adjustment", async () => {
     const { app } = await makeApp();
     // Two accounts so row ids diverge from adjustment ids -- this used to pass
     // by coincidence when the correlated subquery compared aa.account_id to
     // aa.id (drizzle rendered the outer column unqualified).
     const first = (await request(app).post("/api/accounts").send(BASE_ACCOUNT)).body;
     const second = (await request(app).post("/api/accounts").send({ ...BASE_ACCOUNT, name: "Second" })).body;
-    await request(app).patch(`/api/accounts/${second.id}`).send({ balance: 500, reason: "test" });
+    await request(app).post(`/api/accounts/${second.id}/correct`).send({ balance: 500, reason: "test", date: "2026-09-20" });
     const res = await request(app).get("/api/accounts");
     const byId = new Map(res.body.map((a: { id: number; has_recent_adjustment: boolean }) => [a.id, a.has_recent_adjustment]));
-    expect(byId.get(second.id)).toBe(true);
+    expect(byId.get(second.id)).toBe(false);
     expect(byId.get(first.id)).toBe(false);
   });
 

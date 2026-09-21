@@ -40,7 +40,6 @@ export interface AccountPayload {
   is_default?: boolean;
   is_active?: boolean;
   exclude_from_reports?: boolean;
-  reason?: string;
 }
 
 interface Props {
@@ -50,6 +49,7 @@ interface Props {
   initial?: Partial<AccountPayload>;
   title: string;
   isEdit?: boolean;
+  onCorrectBalance?: () => void;
   // Currency preselected for a NEW account (the household base currency).
   defaultCurrency?: string;
 }
@@ -74,7 +74,7 @@ const ACCOUNT_TYPES: AccountType[] = [
 
 const LIQUIDITY_TYPES: LiquidityType[] = ["Liquid", "Invested", "Locked"];
 
-export default function AccountForm({ open, onClose, onSave, initial, title, isEdit, defaultCurrency = "USD" }: Props) {
+export default function AccountForm({ open, onClose, onSave, initial, title, isEdit, onCorrectBalance, defaultCurrency = "USD" }: Props) {
   const tr = useT();
   const [name, setName] = useState("");
   const [accountType, setAccountType] = useState<AccountType>("Checking");
@@ -89,7 +89,6 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
   const [isDefault, setIsDefault] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [excludeFromReports, setExcludeFromReports] = useState(false);
-  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -108,7 +107,6 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
       setIsDefault(initial?.is_default ?? false);
       setIsActive(initial?.is_active ?? true);
       setExcludeFromReports(initial?.exclude_from_reports ?? false);
-      setReason("");
       setSaveError(null);
     }
   }, [open, initial, defaultCurrency]);
@@ -121,8 +119,6 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
   const isRSU = accountType === "RSU";
   const isNonUSD = currency !== "USD" && !isRSU;
   const nativeBalance = Number(balance) || 0;
-  const balanceChanged = isEdit && initial?.balance != null && nativeBalance !== initial.balance;
-  const needsReason = balanceChanged && !isRSU;
   const rate = Number(exchangeRate) || 1;
   const usdEquivalent = isNonUSD ? nativeBalance * rate : nativeBalance;
 
@@ -136,7 +132,7 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
         account_type: accountType,
         liquidity_type: liquidityType,
         base_currency: currency,
-        balance: isRSU ? 0 : nativeBalance,
+        balance: isRSU ? 0 : (isEdit ? initial?.balance ?? nativeBalance : nativeBalance),
         exchange_rate: isRSU ? 1 : rate,
         balance_usd: isRSU ? 0 : usdEquivalent,
         ticker: isRSU ? ticker || null : null,
@@ -146,7 +142,6 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
         is_default: isDefault,
         is_active: isActive,
         exclude_from_reports: excludeFromReports,
-        ...(needsReason && { reason }),
       });
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : "Couldn't save the account. Please try again.");
@@ -212,7 +207,17 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
                     onChange={(e) => setBalance(e.target.value)}
                     placeholder="0.00"
                     required
+                    readOnly={isEdit}
+                    aria-readonly={isEdit}
                   />
+                  {isEdit && (
+                    <div className="space-y-1.5 pt-1">
+                      <p className="text-xs text-muted-foreground">Balance is calculated from transactions.</p>
+                      <Button type="button" variant="outline" size="sm" onClick={onCorrectBalance}>
+                        Correct balance…
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="currency">Currency</Label>
@@ -335,19 +340,6 @@ export default function AccountForm({ open, onClose, onSave, initial, title, isE
             />
             Exclude from reports (its transactions are left out of spend and income totals)
           </label>
-
-          {needsReason && (
-            <div className="space-y-1.5">
-              <Label htmlFor="reason">Reason for balance change <span className="text-red-500">*</span></Label>
-              <Input
-                id="reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Reconciliation with bank statement"
-                required
-              />
-            </div>
-          )}
 
           {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
 
