@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import Accounts from "@/pages/Accounts";
-import type { Account } from "@/components/SortableAccountRow";
+import { isAccountStale, type Account } from "@/components/SortableAccountRow";
 import { setAdvancedFeatures } from "@/lib/features";
 
 function account(partial: Partial<Account> & { id: number; name: string }): Account {
@@ -20,7 +20,7 @@ function account(partial: Partial<Account> & { id: number; name: string }): Acco
     notes: null,
     is_default: false,
     is_active: true,
-    has_recent_adjustment: false,
+    last_activity_at: "2026-09-19T00:00:00.000Z",
     ...partial,
   };
 }
@@ -101,6 +101,35 @@ describe("Accounts page -- accessible account form", () => {
     expect(screen.getByRole("combobox", { name: "Liquidity" })).toBeInTheDocument();
   });
 
+  it("keeps an existing balance read-only and saves corrections through the ledger endpoint", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => ({
+      ok: true,
+      status: init?.method === "POST" ? 201 : 200,
+      json: async () => init?.method === "POST" ? { transaction_id: 42, balance: 125 } : DATA,
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    render(<Accounts />);
+    fireEvent.click(await screen.findByText("BofA Check"));
+
+    expect(screen.getByLabelText(/Balance \(USD\)/)).toHaveAttribute("readonly");
+    fireEvent.click(screen.getByRole("button", { name: "Correct balance…" }));
+    fireEvent.change(screen.getByLabelText("Correct balance (USD)"), { target: { value: "125" } });
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-09-20" } });
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "Bank statement reconciliation" } });
+    fireEvent.submit(screen.getByRole("button", { name: "Save correction" }).closest("form")!);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/accounts/1/correct",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    const call = fetchMock.mock.calls.find(([input]) => input === "/api/accounts/1/correct")!;
+    expect(JSON.parse(String(call[1]?.body))).toMatchObject({
+      balance: 125,
+      reason: "Bank statement reconciliation",
+    });
+  });
+
   it("shows account-save failures inside the open dialog", async () => {
     vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
@@ -119,5 +148,14 @@ describe("Accounts page -- accessible account form", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Synthetic account conflict");
     expect(screen.getByRole("dialog", { name: "Add Account" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  });
+});
+
+describe("account freshness", () => {
+  it("flags active accounts at 14 days and ignores inactive accounts", () => {
+    const now = Date.parse("2026-09-20T00:00:00.000Z");
+    expect(isAccountStale(account({ id: 1, name: "Old", last_activity_at: "2026-09-06T00:00:00.000Z" }), now)).toBe(true);
+    expect(isAccountStale(account({ id: 2, name: "Recent", last_activity_at: "2026-09-07T00:00:00.000Z" }), now)).toBe(false);
+    expect(isAccountStale(account({ id: 3, name: "Inactive", is_active: false, last_activity_at: "2026-01-01T00:00:00.000Z" }), now)).toBe(false);
   });
 });

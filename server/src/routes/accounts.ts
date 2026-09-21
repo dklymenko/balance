@@ -1,15 +1,16 @@
 import { Router } from "express";
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { DrizzleDB } from "../db/types.js";
 import { runTransaction } from "../db/tx.js";
-import { accounts, accountAdjustments, transactions } from "../db/schema.js";
-import { deriveMarketValueCents, fromCents, toCents } from "../lib/finance.js";
+import { accounts, accountAdjustments, categories, transactions } from "../db/schema.js";
+import { assertStorableCents, deriveMarketValueCents, deriveUsdCents, fromCents, toCents } from "../lib/finance.js";
 import { recomputeAccountBalance } from "../lib/recompute.js";
 import { recordChange } from "../lib/ledgerHooks.js";
-import { parsePositiveId, sendError } from "../lib/validation.js";
+import { isRealDate, parsePositiveId, sendError } from "../lib/validation.js";
 
 type AccountRow = typeof accounts.$inferSelect & {
   has_recent_adjustment?: number | boolean;
+  last_activity_at?: string;
 };
 
 // Money is stored as integer cents; the JSON API speaks dollars. Convert money
@@ -158,6 +159,11 @@ export function createAccountsRouter(db: DrizzleDB) {
           exclude_from_reports: accounts.exclude_from_reports,
           created_at: accounts.created_at,
           updated_at: accounts.updated_at,
+          last_activity_at: sql<string>`MAX(
+            accounts.updated_at,
+            COALESCE((SELECT MAX(t.updated_at) FROM transactions t WHERE t.account_id = accounts.id), accounts.updated_at),
+            COALESCE((SELECT MAX(aa.created_at) FROM account_adjustments aa WHERE aa.account_id = accounts.id), accounts.updated_at)
+          )`,
           // The correlated column is qualified BY HAND: drizzle's sqlite
           // dialect renders ${accounts.id} as bare "id" inside a subquery,
           // which SQLite then resolves against aa (aa.account_id = aa.id) --
@@ -315,11 +321,74 @@ export function createAccountsRouter(db: DrizzleDB) {
     }
   });
 
+  // Correcting an existing balance is a ledger event, never a direct account
+  // rewrite. The generated transaction is excluded from reports so a
+  // reconciliation does not masquerade as spending or income.
+  router.post("/:id/correct", async (req, res) => {
+    try {
+      const id = parsePositiveId(req.params.id);
+      if (id === null) return res.status(400).json({ error: "id must be a positive integer" });
+      const { balance, reason, date = new Date().toISOString().slice(0, 10) } = req.body as {
+        balance?: unknown; reason?: unknown; date?: unknown;
+      };
+      if (typeof balance !== "number" || !Number.isFinite(balance) || Math.abs(balance) > 1e12) {
+        return res.status(400).json({ error: "balance must be a finite number" });
+      }
+      if (typeof reason !== "string" || reason.trim().length === 0 || reason.length > 10_000) {
+        return res.status(400).json({ error: "reason is required and must be at most 10000 characters" });
+      }
+      if (typeof date !== "string" || !isRealDate(date)) {
+        return res.status(400).json({ error: "date must be a real YYYY-MM-DD date" });
+      }
+
+      const targetBalance = toCents(balance);
+      const result = await runTransaction(db, async (tx) => {
+        const [account] = await tx.select().from(accounts).where(eq(accounts.id, id));
+        if (!account) throw Object.assign(new Error("Account not found"), { status: 404 });
+        if (account.account_type === "RSU") {
+          throw Object.assign(new Error("RSU value is corrected by updating shares or price"), { status: 400 });
+        }
+        const delta = targetBalance - account.balance;
+        if (delta === 0) throw Object.assign(new Error("balance already matches"), { status: 400 });
+
+        let [category] = await tx.select().from(categories).where(and(
+          isNull(categories.parent_id),
+          sql`lower(${categories.name}) = 'correction'`,
+        )).limit(1);
+        if (!category) {
+          [category] = await tx.insert(categories)
+            .values({ name: "Correction", kind: "both", parent_id: null })
+            .returning();
+          recordChange({ entity: "category", entityUuid: category.uuid, op: "upsert" });
+        }
+
+        const amount = assertStorableCents(Math.abs(delta), "correction amount");
+        const [transaction] = await tx.insert(transactions).values({
+          account_id: id,
+          category_id: category.id,
+          date,
+          description: reason.trim(),
+          amount_fx: amount,
+          exchange_rate: account.exchange_rate,
+          amount_usd: deriveUsdCents(amount, account.exchange_rate),
+          type: delta > 0 ? "credit" : "debit",
+          exclude_from_reports: true,
+        }).returning();
+        recomputeAccountBalance(tx, id);
+        recordChange({ entity: "transaction", entityUuid: transaction.uuid, op: "upsert" });
+        return { transactionId: transaction.id, balance: targetBalance };
+      });
+      res.status(201).json({ transaction_id: result.transactionId, balance: fromCents(result.balance) });
+    } catch (err) {
+      sendError(res, err, "Failed to correct account balance");
+    }
+  });
+
   router.patch("/:id", async (req, res) => {
     try {
       const id = parsePositiveId(req.params.id);
       if (id === null) return res.status(400).json({ error: "id must be a positive integer" });
-      const { reason, ...rawBody } = req.body as Record<string, unknown> & { reason?: string };
+      const rawBody = req.body as Record<string, unknown>;
       const validationError = validateAccountBody(rawBody, false);
       if (validationError) return res.status(400).json({ error: validationError });
       // Whitelist client-settable fields so request bodies cannot assign ids,
@@ -330,11 +399,8 @@ export function createAccountsRouter(db: DrizzleDB) {
       };
       if (typeof body.name === "string") body.name = body.name.trim();
 
-      // Guard: a real balance change (different value) requires a reason and
-      // becomes an adjustment row -- the frozen delta is what the canonical
-      // recompute (and any sync replica) reproduces. RSU accounts are exempt:
-      // their worth is shares × price (market_value) and their balance pins
-      // to 0. balance/balance_usd are never assigned directly anymore.
+      // Existing balances are derived from the ledger. A changed value must go
+      // through POST /:id/correct so the reason is a normal transaction.
       const { balance: requestedBalance, balance_usd: _ignoredUsd, ...fields } = body;
       void _ignoredUsd;
       const row = await runTransaction(db, async (tx) => {
@@ -359,20 +425,8 @@ export function createAccountsRouter(db: DrizzleDB) {
             reason: current.account_type === "RSU" ? "Normalized RSU balance" : "Converted account to RSU",
           }).returning();
           recordChange({ entity: "account_adjustment", entityUuid: adj.uuid, op: "upsert" });
-        } else if (typeof requestedBalance === "number") {
-          if (requestedBalance !== current.balance && !nextIsRSU) {
-            const trimmedReason = (reason ?? "").trim();
-            if (!trimmedReason) {
-              throw Object.assign(new Error("reason is required when updating balance"), { status: 400 });
-            }
-            const [adj] = await tx.insert(accountAdjustments).values({
-              account_id: id,
-              old_balance: current.balance,
-              new_balance: requestedBalance,
-              reason: trimmedReason,
-            }).returning();
-            recordChange({ entity: "account_adjustment", entityUuid: adj.uuid, op: "upsert" });
-          }
+        } else if (typeof requestedBalance === "number" && requestedBalance !== current.balance) {
+          throw Object.assign(new Error("existing account balance cannot be changed directly; create a correction transaction"), { status: 400 });
         }
         if (body.is_default === true) await clearOtherDefaults(tx, id);
         await tx.update(accounts).set(fields)
