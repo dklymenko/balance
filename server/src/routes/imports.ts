@@ -94,9 +94,13 @@ function parseBodyOrders(raw: unknown): AmazonOrder[] | null {
     if (typeof entry !== "object" || entry === null) return null;
     const { amazon_order_id, order_date, amount_usd, items } = entry as Record<string, unknown>;
     if (typeof order_date !== "string" || !isRealDate(order_date)) return null;
-    if (typeof amount_usd !== "number" || !Number.isFinite(amount_usd) || amount_usd <= 0 || amount_usd > 1e12) return null;
+    if (typeof amount_usd !== "number" || !Number.isFinite(amount_usd) || amount_usd < 0 || amount_usd > 1e12) return null;
     if (!Array.isArray(items) || items.some(i => typeof i !== "string")) return null;
     if (amazon_order_id != null && typeof amazon_order_id !== "string") return null;
+    // Amazon can list promotional or fully discounted orders with a $0 total.
+    // They can never match a positive bank charge, so ignore them instead of
+    // rejecting the complete desktop scrape.
+    if (amount_usd === 0) continue;
     out.push({
       amazon_order_id: typeof amazon_order_id === "string" ? amazon_order_id.slice(0, MAX_ORDER_ID_CHARS) : null,
       order_date,
