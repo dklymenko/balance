@@ -265,6 +265,22 @@ describe("POST /api/imports/amazon-match", () => {
       expect(stored).toHaveLength(0);
     });
 
+    it("ignores zero-dollar Amazon orders without rejecting paid matches", async () => {
+      const { app } = makeAppWith([]);
+      const orders: AmazonOrder[] = [
+        { amazon_order_id: "free", order_date: "2026-04-24", amount_usd: 0, items: ["Promotional item"] },
+        { amazon_order_id: "paid", order_date: "2026-04-24", amount_usd: 22.22, items: ["Echo Dot"] },
+      ];
+      const rows = [makeRow({ amount: "22.22", date: "2026-04-25" })];
+
+      const res = await request(app).post("/api/imports/amazon-match").send({ rows, orders });
+
+      expect(res.status).toBe(200);
+      expect(res.body.matched_count).toBe(1);
+      expect(res.body.matches[0].summary).toBe("Echo Dot");
+      expect(res.body.scraped_orders).toBe(1);
+    });
+
     it("returns 400 when orders is not an array of well-formed entries", async () => {
       const { app } = makeAppWith([]);
       const rows = [makeRow()];
@@ -272,7 +288,6 @@ describe("POST /api/imports/amazon-match", () => {
         "nope",
         [{ order_date: "not-a-date", amount_usd: 1, items: [] }],
         [{ order_date: "2026-02-31", amount_usd: 1, items: [] }],
-        [{ order_date: "2026-04-24", amount_usd: 0, items: [] }],
         [{ order_date: "2026-04-24", amount_usd: "22.22", items: [] }],
         [{ order_date: "2026-04-24", amount_usd: 22.22, items: [42] }],
       ]) {
