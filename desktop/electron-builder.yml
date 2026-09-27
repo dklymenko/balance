@@ -3,6 +3,10 @@
 appId: com.dmytroklymenko.balance
 productName: Balance
 artifactName: Balance-${version}-${arch}.${ext}
+protocols:
+  - name: Balance Cloud sign-in
+    schemes:
+      - balance-desktop
 afterPack: scripts/after-pack.cjs
 electronFuses:
   runAsNode: false

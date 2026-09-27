@@ -30,5 +30,7 @@ contextBridge.exposeInMainWorld("balanceDesktop", {
   },
   cloud: {
     status: () => ipcRenderer.invoke("cloud:status"),
+    syncNow: () => ipcRenderer.invoke("cloud:sync-now"),
+    signIn: () => ipcRenderer.invoke("cloud:sign-in"),
   },
 });

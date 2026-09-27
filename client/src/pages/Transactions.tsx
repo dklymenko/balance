@@ -147,7 +147,9 @@ export default function Transactions() {
   // changes, so a plain read (no state) is enough.
   const desktopBridge = getDesktopBridge() != null;
   const [cloudStatus, setCloudStatus] = useState<DesktopCloudStatus | null>(() =>
-    getDesktopBridge()?.cloud ? null : { mode: "local", connecting: false }
+    getDesktopBridge()?.cloud ? null : {
+      mode: "local", connecting: false, state: "idle", lastSyncAt: null, pending: 0, conflicts: 0,
+    }
   );
   const [txList, setTxList] = useState<Transaction[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(new Set());
@@ -194,7 +196,11 @@ export default function Transactions() {
     let active = true;
     void cloud.status()
       .then((status) => { if (active) setCloudStatus(status); })
-      .catch(() => { if (active) setCloudStatus({ mode: "local", connecting: false }); });
+      .catch(() => {
+        if (active) setCloudStatus({
+          mode: "local", connecting: false, state: "idle", lastSyncAt: null, pending: 0, conflicts: 0,
+        });
+      });
     return () => { active = false; };
   }, []);
 

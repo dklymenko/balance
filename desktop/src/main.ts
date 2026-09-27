@@ -36,12 +36,14 @@ import {
 } from "./navigation";
 import { secureStorageCodec, unwrapSecret, wrapSecret } from "./secureStorage";
 import { shouldRestoreMainWindow } from "./windowLifecycle";
+import { protocolClientArgs, shouldReuseSyncToken } from "./cloudAuth";
 
 // One app, two modes (userData/config.json decides). Both boot the embedded
 // server in a utilityProcess against the local database. The file is plaintext
 // until the user opts into encryption; cloud mode adds background sync.
 
 const SHELL_SCHEME = "balance-shell";
+const CLOUD_AUTH_SCHEME = "balance-desktop";
 
 // The chooser and App Lock are tiny packaged pages. Serve them through a
 // private, standard URL scheme so renderers never need file:// privileges.
@@ -92,7 +94,6 @@ const amazonPartition = amazonPartitionFor(app.isPackaged);
 app.userAgentFallback = app.userAgentFallback.replace(/\s(Electron|balance(?:[- ]desktop)?)\/\S+/gi, "");
 
 let mainWindow: BrowserWindow | null = null;
-let signInWindow: BrowserWindow | null = null;
 let lockWindow: BrowserWindow | null = null;
 let uiLocked = false;
 // Resolved database key for this session (needed to re-wrap when App Lock is
@@ -105,13 +106,25 @@ let lastUnlockPassword: string | null = null;
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
+    const authUrl = argv.find((arg) => desktopAuthCode(arg));
+    if (authUrl) void finishCloudSignIn(authUrl);
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
   });
 }
+
+app.on("open-url", (event, url) => {
+  if (!desktopAuthCode(url)) return;
+  event.preventDefault();
+  void finishCloudSignIn(url);
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
 
 // The shell may navigate to the active app origin, the configured sync origin,
 // and Google's sign-in pages during OAuth. Other HTTPS links open in the
@@ -401,7 +414,7 @@ ipcMain.handle("lock:cancel", (event) => {
 function relock(): void {
   if (!isLockEnabled(userDataDir()) || uiLocked || !appUrl) return;
   uiLocked = true;
-  for (const win of [mainWindow, signInWindow]) win?.close();
+  mainWindow?.close();
   buildMenu();
   void showLockWindow("unlock", false).then((ok) => {
     if (ok) {
@@ -459,12 +472,24 @@ ipcMain.handle("applock:lock-now", (event) => {
   return lockStatus();
 });
 
-ipcMain.handle("cloud:status", (event) => {
+ipcMain.handle("cloud:status", async (event) => {
   assertAppSender(event);
-  return {
-    mode: config?.mode === "cloud" ? "cloud" : "local",
-    connecting: config?.cloudTransition === "connecting",
-  };
+  return cloudStatusForRenderer();
+});
+
+ipcMain.handle("cloud:sync-now", async (event) => {
+  assertAppSender(event);
+  if (config?.mode !== "cloud" || !localServer) throw new Error("Balance Cloud is not connected.");
+  await localServer.request("sync-now", undefined, 300_000);
+  return cloudStatusForRenderer();
+});
+
+ipcMain.handle("cloud:sign-in", async (event) => {
+  assertAppSender(event);
+  if (config?.mode !== "cloud" || !localServer) throw new Error("Balance Cloud is not connected.");
+  await ensureSignedIn(true);
+  await localServer.request("sync-now", undefined, 300_000);
+  return cloudStatusForRenderer();
 });
 
 // ---------------------------------------------------------------------------
@@ -723,90 +748,100 @@ function unwrappedSyncToken(): string | null {
   return wrapped ? unwrapSecret(safeStorage, wrapped) : null;
 }
 
-// The server finishes sign-in on a balance-desktop:// redirect carrying a
-// 60s PKCE exchange code, which we intercept in-window -- no OS protocol
-// registration needed.
+interface PendingCloudAuth {
+  verifier: string;
+  resolve: (token: string) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+}
+
+let pendingCloudAuth: PendingCloudAuth | null = null;
+
+function registerDesktopAuthProtocol(): boolean {
+  const registration = protocolClientArgs(
+    !!process.defaultApp,
+    process.execPath,
+    process.argv[1] ? path.resolve(process.argv[1]) : undefined,
+  );
+  return registration.executable
+    ? app.setAsDefaultProtocolClient(CLOUD_AUTH_SCHEME, registration.executable, registration.args)
+    : app.setAsDefaultProtocolClient(CLOUD_AUTH_SCHEME);
+}
+
+async function exchangeCloudAuthCode(code: string, verifier: string): Promise<string> {
+  const res = await fetch(new URL("/auth/device/exchange", saasUrl()).toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code, code_verifier: verifier }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) throw new Error(`Sign-in exchange failed (${res.status})`);
+  const contentLength = Number(res.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > 1_000_000) {
+    throw new Error("Sign-in exchange response was too large");
+  }
+  const raw = await res.text();
+  if (raw.length > 1_000_000) throw new Error("Sign-in exchange response was too large");
+  let payload: unknown;
+  try { payload = JSON.parse(raw); }
+  catch { throw new Error("Sign-in exchange returned an invalid response"); }
+  const token = (payload as { token?: unknown } | null)?.token;
+  if (typeof token !== "string" || token.length === 0 || token.length > 65_536) {
+    throw new Error("Sign-in exchange returned no valid token");
+  }
+  return token;
+}
+
+async function finishCloudSignIn(raw: string): Promise<boolean> {
+  const code = desktopAuthCode(raw);
+  if (!code) return false;
+  const pending = pendingCloudAuth;
+  if (!pending) return true;
+  pendingCloudAuth = null;
+  clearTimeout(pending.timeout);
+  try {
+    pending.resolve(await exchangeCloudAuthCode(code, pending.verifier));
+  } catch (error) {
+    pending.reject(error instanceof Error ? error : new Error(String(error)));
+  }
+  return true;
+}
+
+// Google blocks embedded Electron browsers. Use the user's normal browser and
+// return through the registered private URL scheme; PKCE keeps the one-time
+// exchange code useless to any other process.
 function signInToCloud(): Promise<string> {
   return new Promise((resolve, reject) => {
-    if (signInWindow) {
-      signInWindow.focus();
-      return reject(new Error("A sign-in window is already open"));
+    if (pendingCloudAuth) {
+      return reject(new Error("A sign-in is already in progress in your browser"));
     }
+    if (!registerDesktopAuthProtocol()) {
+      return reject(new Error("Balance could not register its secure sign-in callback"));
+    }
+
     const verifier = b64url(randomBytes(48));
     const challenge = b64url(createHash("sha256").update(verifier).digest());
-
-    const win = new BrowserWindow({
-      width: 1100,
-      height: 800,
-      title: "Sign in to Balance Cloud",
-      webPreferences: {
-        partition: CLOUD_AUTH_PARTITION,
-        contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: !app.isPackaged,
-      },
-    });
-    signInWindow = win;
-    applyNavigationRules(win, true);
-
-    let settled = false;
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      fn();
-      if (!win.isDestroyed()) win.close();
-    };
-
-    const tryIntercept = (event: Electron.Event, url: string) => {
-      const code = desktopAuthCode(url);
-      if (!code) return;
-      event.preventDefault();
-      void (async () => {
-        try {
-          const res = await fetch(new URL("/auth/device/exchange", saasUrl()).toString(), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code, code_verifier: verifier }),
-            signal: AbortSignal.timeout(30_000),
-          });
-          if (!res.ok) throw new Error(`Sign-in exchange failed (${res.status})`);
-          const contentLength = Number(res.headers.get("content-length"));
-          if (Number.isFinite(contentLength) && contentLength > 1_000_000) {
-            throw new Error("Sign-in exchange response was too large");
-          }
-          const raw = await res.text();
-          if (raw.length > 1_000_000) throw new Error("Sign-in exchange response was too large");
-          let payload: unknown;
-          try { payload = JSON.parse(raw); }
-          catch { throw new Error("Sign-in exchange returned an invalid response"); }
-          const token = (payload as { token?: unknown } | null)?.token;
-          if (typeof token !== "string" || token.length === 0 || token.length > 65_536) {
-            throw new Error("Sign-in exchange returned no valid token");
-          }
-          settle(() => resolve(token));
-        } catch (err) {
-          settle(() => reject(err instanceof Error ? err : new Error(String(err))));
-        }
-      })();
-    };
-    win.webContents.on("will-redirect", tryIntercept);
-    win.webContents.on("will-navigate", tryIntercept);
-    win.on("closed", () => {
-      signInWindow = null;
-      if (!settled) {
-        settled = true;
-        reject(new Error("Sign-in was cancelled"));
-      }
-    });
+    const timeout = setTimeout(() => {
+      pendingCloudAuth = null;
+      reject(new Error("Sign-in timed out. Try again from Settings."));
+    }, 5 * 60_000);
+    pendingCloudAuth = { verifier, resolve, reject, timeout };
 
     const authUrl = new URL("/auth/google", saasUrl());
     authUrl.searchParams.set("client", "desktop");
     authUrl.searchParams.set("code_challenge", challenge);
-    void win.loadURL(authUrl.toString());
+    void shell.openExternal(authUrl.toString()).catch((error) => {
+      if (!pendingCloudAuth || pendingCloudAuth.verifier !== verifier) return;
+      pendingCloudAuth = null;
+      clearTimeout(timeout);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    });
   });
 }
 
-async function ensureSignedIn(): Promise<string> {
+async function ensureSignedIn(forceFresh = false): Promise<string> {
   const existing = unwrappedSyncToken();
-  if (existing && localServer) return existing;
+  if (shouldReuseSyncToken(existing, !!localServer, forceFresh)) return existing;
   const token = await signInToCloud();
   const wrapped = wrapSyncToken(token);
   writeConfig(configPath(), { ...(config as AppConfig), syncToken: wrapped ?? undefined });
@@ -825,6 +860,16 @@ interface SyncStatusPayload {
   saasUrl: string;
 }
 
+interface RendererCloudStatus {
+  mode: "local" | "cloud";
+  connecting: boolean;
+  state: "idle" | "syncing" | "offline" | "auth_required" | "error";
+  lastSyncAt: string | null;
+  pending: number;
+  conflicts: number;
+  message?: string;
+}
+
 async function fetchSyncStatus(): Promise<SyncStatusPayload | null> {
   if (!localServer) return null;
   try {
@@ -832,6 +877,35 @@ async function fetchSyncStatus(): Promise<SyncStatusPayload | null> {
   } catch {
     return null;
   }
+}
+
+async function cloudStatusForRenderer(): Promise<RendererCloudStatus> {
+  const mode = config?.mode === "cloud" ? "cloud" : "local";
+  const connecting = config?.cloudTransition === "connecting";
+  if (mode === "local") {
+    return { mode, connecting, state: "idle", lastSyncAt: null, pending: 0, conflicts: 0 };
+  }
+  const status = await fetchSyncStatus();
+  if (!status) {
+    return {
+      mode,
+      connecting,
+      state: "error",
+      lastSyncAt: null,
+      pending: 0,
+      conflicts: 0,
+      message: "The local sync service did not respond.",
+    };
+  }
+  return {
+    mode,
+    connecting,
+    state: status.engine.state as RendererCloudStatus["state"],
+    lastSyncAt: status.engine.lastSyncAt,
+    pending: status.pending,
+    conflicts: status.conflicts,
+    ...(status.engine.message ? { message: status.engine.message } : {}),
+  };
 }
 
 // Enrollment: sign in, then migrate the local ledger up (empty
@@ -983,7 +1057,7 @@ async function showSyncStatus(): Promise<void> {
   const picked = buttons[response];
   if (picked === "Sign In") {
     try {
-      await ensureSignedIn();
+      await ensureSignedIn(true);
       await localServer?.request("sync-now", undefined, 300_000);
     } catch (err) {
       dialog.showErrorBox("Sign-in failed", err instanceof Error ? err.message : String(err));
