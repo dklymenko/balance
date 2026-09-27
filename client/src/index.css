@@ -57,7 +57,7 @@
 :root,
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-base: #f2f2f7;
+  --bg-base: #ffffff;
   --bg-surface: #ffffff;
   --bg-surface-2: #f2f2f7;
   --bg-surface-tint-income: #e6f6ec;
