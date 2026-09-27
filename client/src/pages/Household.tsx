@@ -7,6 +7,7 @@ import FontSizeToggle from "@/components/FontSizeToggle";
 import AppLockSection from "@/components/AppLockSection";
 import EncryptionSection from "@/components/EncryptionSection";
 import AmazonSessionSection from "@/components/AmazonSessionSection";
+import CloudSyncSection from "@/components/CloudSyncSection";
 import PageContainer from "@/components/PageContainer";
 import { useAdvancedFeatures, setAdvancedFeatures } from "@/lib/features";
 import { CURRENCIES } from "@/lib/currencies";
@@ -179,6 +180,8 @@ export default function Household() {
       <AppLockSection />
 
       <EncryptionSection />
+
+      <CloudSyncSection />
 
       <AmazonSessionSection />
 

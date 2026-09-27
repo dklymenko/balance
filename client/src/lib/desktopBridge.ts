@@ -56,10 +56,17 @@ export interface DesktopEncryption {
 export interface DesktopCloudStatus {
   mode: "local" | "cloud";
   connecting: boolean;
+  state: "idle" | "syncing" | "offline" | "auth_required" | "error";
+  lastSyncAt: string | null;
+  pending: number;
+  conflicts: number;
+  message?: string;
 }
 
 export interface DesktopCloud {
   status(): Promise<DesktopCloudStatus>;
+  syncNow(): Promise<DesktopCloudStatus>;
+  signIn(): Promise<DesktopCloudStatus>;
 }
 
 export interface DesktopAmazonSession {
@@ -108,6 +115,10 @@ export function scrapeWindowFor(dates: string[]): ScrapeWindow | null {
 
 export function getDesktopAppLock(): DesktopAppLock | null {
   return getDesktopBridge()?.appLock ?? null;
+}
+
+export function getDesktopCloud(): DesktopCloud | null {
+  return getDesktopBridge()?.cloud ?? null;
 }
 
 export function getDesktopEncryption(): DesktopEncryption | null {

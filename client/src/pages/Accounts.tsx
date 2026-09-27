@@ -248,10 +248,10 @@ export default function Accounts() {
         const groupTotal = groupAccounts.reduce((s, a) => s + effectiveValue(a), 0);
 
         return (
-          <section key={key} className="space-y-1">
-            <div className="flex items-center justify-between">
+          <section key={key}>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-border px-2 pb-2">
               <h2 className="text-base font-semibold">{t(`accountGroup.${key}`)}</h2>
-              <span className={`text-sm font-medium tabular-nums ${balanceClass(groupTotal) || "text-muted-foreground"}`}>
+              <span className={`min-w-28 text-right text-sm font-medium tabular-nums ${balanceClass(groupTotal) || "text-muted-foreground"}`}>
                 {USD.format(groupTotal)}
               </span>
             </div>
