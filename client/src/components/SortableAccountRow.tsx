@@ -105,7 +105,7 @@ export default function SortableAccountRow({ account, editMode = false, onEdit, 
       <button
         type="button"
         onClick={() => onEdit(account)}
-        className="flex min-w-0 flex-1 items-center justify-between gap-3 py-3 text-left lg:grid lg:grid-cols-[minmax(0,15rem)_auto] lg:justify-start lg:gap-6"
+        className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-sm px-2 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="min-w-0 space-y-1">
           <p className={`truncate text-[15px] font-medium leading-none ${account.is_active === false ? "text-muted-foreground" : ""}`}>
@@ -131,7 +131,7 @@ export default function SortableAccountRow({ account, editMode = false, onEdit, 
           </div>
         </div>
 
-        <div className="shrink-0 text-right">
+        <div className="min-w-28 shrink-0 text-right">
           <p className={`text-[15px] font-semibold tabular-nums ${balanceClass(effectiveValue(account))}`}>
             {account.account_type === "RSU"
               ? USD.format(effectiveValue(account))
