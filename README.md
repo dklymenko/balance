@@ -184,7 +184,7 @@ and run the app:
 
 ```bash
 npm run verify       # hygiene, lint, typecheck, tests, and production build
-npm run audit:all    # registry-backed audit of runtime and development tools
+npm run audit:all    # audit runtime and development tools; high/critical findings block
 npm run start        # build and launch the desktop app
 npm run dev          # optional browser-only development mode
 npm run dist         # optional unsigned DMG and ZIP for your own Mac
