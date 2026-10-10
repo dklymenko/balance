@@ -46,6 +46,16 @@ describe("parseAmountInput", () => {
     expect(parseAmountInput("₴100", "UAH")).toEqual({ value: 100, currencyError: null });
   });
 
+  it("accepts correctly grouped thousands separators", () => {
+    expect(parseAmountInput("$1,553.41", "USD")).toEqual({ value: 1553.41, currencyError: null });
+    expect(parseAmountInput("1,553.41", "USD")).toEqual({ value: 1553.41, currencyError: null });
+    expect(parseAmountInput("$1,000+553.41", "USD")).toEqual({ value: 1553.41, currencyError: null });
+  });
+
+  it("rejects malformed thousands separators", () => {
+    expect(parseAmountInput("$15,53.41", "USD")).toEqual({ value: null, currencyError: null });
+  });
+
   it("rejects a symbol that does not match the selected account currency", () => {
     expect(parseAmountInput("€23.50", "USD")).toEqual({ value: null, currencyError: "USD only" });
     expect(parseAmountInput("€23.50", "UAH")).toEqual({ value: null, currencyError: "UAH only" });

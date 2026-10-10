@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import Transactions from "@/pages/Transactions";
 
@@ -80,5 +81,16 @@ describe("Transactions -- server-side pagination", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain("limit=100");
     expect(calls[0]).toContain("offset=0");
+  });
+
+  it("clears a typed transaction search with the shared Clear button", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><Transactions /></MemoryRouter>);
+
+    const search = await screen.findByPlaceholderText("Search by amount, category or comment...");
+    await user.type(search, "groceries");
+
+    await user.click(screen.getByRole("button", { name: "Clear filters and search" }));
+    expect(search).toHaveValue("");
   });
 });

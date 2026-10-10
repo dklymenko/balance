@@ -127,6 +127,15 @@ describe("TransactionForm -- amount and transfer integrity", () => {
     expect(onSave.mock.calls[0][0]).toMatchObject({ amount_fx: 27, amount_usd: 27 });
   });
 
+  it("accepts a matching currency symbol with grouped thousands", async () => {
+    const { onSave } = renderForm();
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: "$1,553.41" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ amount_fx: 1553.41, amount_usd: 1553.41 });
+  });
+
   it("shows the account currency when a different currency symbol is entered", () => {
     renderForm();
     fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: "€23.50" } });
@@ -194,6 +203,58 @@ describe("TransactionForm -- category search", () => {
     const topLevel = await screen.findByText("Food", { selector: "[cmdk-item]" });
     const child = await screen.findByText("Baby food", { selector: "[cmdk-item]" });
     expectBefore(topLevel, child);
+  });
+
+  it("shows only income-compatible categories for an income transaction", async () => {
+    renderForm({
+      defaultType: "credit",
+      categories: [
+        { id: 1, name: "Food", parent_id: null, kind: "expense" },
+        { id: 2, name: "Salary", parent_id: null, kind: "income" },
+        { id: 3, name: "Reimbursements", parent_id: null, kind: "both" },
+      ],
+    });
+
+    expect(screen.queryByRole("button", { name: "Food" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salary" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reimbursements" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Category" }));
+    expect(screen.queryByText("Food", { selector: "[cmdk-item]" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Salary", { selector: "[cmdk-item]" })).toBeInTheDocument();
+  });
+
+  it("shows only expense-compatible categories for an expense transaction", async () => {
+    renderForm({
+      categories: [
+        { id: 1, name: "Food", parent_id: null, kind: "expense" },
+        { id: 2, name: "Salary", parent_id: null, kind: "income" },
+        { id: 3, name: "Reimbursements", parent_id: null, kind: "both" },
+      ],
+    });
+
+    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salary" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reimbursements" })).toBeInTheDocument();
+  });
+
+  it("clears an incompatible category when the transaction type changes", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      categories: [
+        { id: 1, name: "Food", parent_id: null, kind: "expense" },
+        { id: 2, name: "Salary", parent_id: null, kind: "income" },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Food" }));
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveTextContent("Food");
+
+    await user.click(screen.getByRole("combobox", { name: "Type" }));
+    await user.click(await screen.findByRole("option", { name: "Income" }));
+
+    expect(screen.getByRole("combobox", { name: "Category" })).toHaveTextContent("Select category");
+    expect(screen.queryByRole("button", { name: "Food" })).not.toBeInTheDocument();
   });
 });
 
