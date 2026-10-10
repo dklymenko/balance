@@ -701,6 +701,11 @@ export default function Transactions() {
     setFilterRecent(false);
   }
 
+  function clearFiltersAndSearch() {
+    clearFilters();
+    setSearch("");
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <input ref={formatAFileRef} type="file" accept=".csv" className="hidden" onChange={handleFormatAImport} />
@@ -738,8 +743,8 @@ export default function Transactions() {
               </span>
             )}
           </Button>
-          {hasFilters && (
-            <Button variant="ghost" size="sm" onClick={clearFilters} className="shrink-0 px-2 text-muted-foreground" aria-label="Clear filter">
+          {(hasFilters || !!search.trim()) && (
+            <Button variant="ghost" size="sm" onClick={clearFiltersAndSearch} className="shrink-0 px-2 text-muted-foreground" aria-label="Clear filters and search">
               <X className="w-4 h-4 sm:mr-1" /> <span className="hidden sm:inline">Clear</span>
             </Button>
           )}

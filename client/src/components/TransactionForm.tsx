@@ -71,6 +71,14 @@ export interface Category {
   kind?: "income" | "expense" | "both";
 }
 
+type TransactionType = "debit" | "credit" | "transfer";
+
+function categoryMatchesType(category: Category, type: TransactionType): boolean {
+  if (type === "credit") return category.kind === "income" || category.kind === "both";
+  if (type === "debit") return category.kind !== "income";
+  return false;
+}
+
 export interface TransactionPayload {
   account_id: number;
   category_id: number | null;
@@ -159,7 +167,7 @@ export default function TransactionForm({
   const [date, setDate] = useState(localDateStr(0));
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState<"debit" | "credit" | "transfer">("debit");
+  const [type, setType] = useState<TransactionType>("debit");
   const [exchangeRate, setExchangeRate] = useState("1");
   const [excludeFromReports, setExcludeFromReports] = useState(false);
   const [tagIds, setTagIds] = useState<number[]>([]);
@@ -201,13 +209,19 @@ export default function TransactionForm({
   const selectedAccount = accounts.find((a) => a.id === Number(accountId));
   const isNonUSD = !isTransfer && selectedAccount && selectedAccount.base_currency !== "USD";
 
-  const selectedCategory = categories.find(c => c.id === categoryId);
-  const isIncomeCategory = selectedCategory?.kind === "income";
+  const compatibleCategories = useMemo(
+    () => categories.filter(category => categoryMatchesType(category, type)),
+    [categories, type],
+  );
+  const compatibleCategoryIds = useMemo(
+    () => new Set(compatibleCategories.map(category => category.id)),
+    [compatibleCategories],
+  );
+  const selectedCategory = compatibleCategories.find(c => c.id === categoryId);
 
-  // Income categories can only be credits -- coerce away from debit automatically.
   useEffect(() => {
-    if (isIncomeCategory && type === "debit") setType("credit");
-  }, [isIncomeCategory, type]);
+    if (categoryId !== null && !compatibleCategoryIds.has(categoryId)) setCategoryId(null);
+  }, [categoryId, compatibleCategoryIds]);
 
   const categoryLabel = selectedCategory
     ? selectedCategory.parent_id
@@ -215,8 +229,17 @@ export default function TransactionForm({
       : selectedCategory.name
     : "Select category…";
 
-  const parentCategories = useMemo(() => categories.filter(c => c.parent_id === null), [categories]);
-  const categoryById = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
+  const parentCategories = useMemo(
+    () => categories.filter(parent => parent.parent_id === null && (
+      compatibleCategoryIds.has(parent.id)
+      || compatibleCategories.some(child => child.parent_id === parent.id)
+    )),
+    [categories, compatibleCategories, compatibleCategoryIds],
+  );
+  const compatibleCategoryById = useMemo(
+    () => new Map(compatibleCategories.map(c => [c.id, c])),
+    [compatibleCategories],
+  );
 
   // Put the strongest top-level match first while retaining the existing grouped
   // list. This keeps "Food" ahead of a nested result such as "Baby food".
@@ -234,16 +257,16 @@ export default function TransactionForm({
 
     return parentCategories
       .map((parent, index) => {
-        const children = categories.filter(c => c.parent_id === parent.id);
+        const children = compatibleCategories.filter(c => c.parent_id === parent.id);
         const bestScore = Math.min(
-          score(parent.name, true),
+          compatibleCategoryIds.has(parent.id) ? score(parent.name, true) : Number.POSITIVE_INFINITY,
           ...children.map(child => score(child.name, false)),
         );
         return { parent, index, bestScore };
       })
       .sort((a, b) => a.bestScore - b.bestScore || a.index - b.index)
       .map(({ parent }) => parent);
-  }, [categories, categorySearch, parentCategories]);
+  }, [categorySearch, compatibleCategories, compatibleCategoryIds, parentCategories]);
 
   // Quick-pick chips: the selected category (if any) first, then recently used
   // categories, padded with top-level categories -- deduped, capped at 6.
@@ -254,15 +277,19 @@ export default function TransactionForm({
       if (c && !seen.has(c.id)) { seen.add(c.id); out.push(c); }
     };
     if (selectedCategory) add(selectedCategory);
-    for (const id of getRecentCategoryIds()) add(categoryById.get(id));
-    for (const p of parentCategories) add(p);
+    for (const id of getRecentCategoryIds()) add(compatibleCategoryById.get(id));
+    for (const p of parentCategories) add(compatibleCategoryById.get(p.id));
     return out.slice(0, 6);
-  }, [selectedCategory, categoryById, parentCategories]);
+  }, [selectedCategory, compatibleCategoryById, parentCategories]);
 
   const { value: amountValue, currencyError } = parseAmountInput(
     amount,
     selectedAccount?.base_currency ?? "USD",
   );
+  const amountExpression = amount.trim().replace(/^[€$£₴]/, "").trim();
+  const amountFormatError = amountExpression && amountValue === null && !currencyError && !/[+\-*/]\s*$/.test(amountExpression)
+    ? "Invalid amount format. Use commas in groups of three digits, for example 1,553.41."
+    : null;
   const amountValid = amountValue !== null && amountValue > 0;
 
   const canSubmit = !!accountId && amountValid && (
@@ -334,8 +361,8 @@ export default function TransactionForm({
                 placeholder="0.00 or 27+13-9"
                 autoComplete="off"
                 required
-                aria-invalid={currencyError ? true : undefined}
-                aria-describedby={currencyError ? "amount-currency-error" : undefined}
+                aria-invalid={currencyError || amountFormatError ? true : undefined}
+                aria-describedby={currencyError ? "amount-currency-error" : amountFormatError ? "amount-format-error" : undefined}
                 className="h-12 flex-1 text-2xl font-semibold tabular-nums"
               />
               {hasOperator(amount) && amountValue !== null && (
@@ -347,6 +374,11 @@ export default function TransactionForm({
             {currencyError && (
               <p id="amount-currency-error" role="alert" className="text-sm text-destructive">
                 {currencyError}
+              </p>
+            )}
+            {amountFormatError && (
+              <p id="amount-format-error" role="alert" className="text-sm text-destructive">
+                {amountFormatError}
               </p>
             )}
             {isNonUSD && (
@@ -366,17 +398,16 @@ export default function TransactionForm({
 
           <div className="space-y-1.5">
             <Label>Type</Label>
-            <Select value={type} onValueChange={(v) => setType(v as typeof type)} disabled={isEditing}>
+            <Select value={type} onValueChange={(v) => setType(v as TransactionType)} disabled={initial?.type === "transfer"}>
               <SelectTrigger aria-label="Type"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="debit" disabled={isIncomeCategory}>{txTypeLabel("debit")}</SelectItem>
+                <SelectItem value="debit">{txTypeLabel("debit")}</SelectItem>
                 <SelectItem value="credit">{txTypeLabel("credit")}</SelectItem>
-                <SelectItem value="transfer">{txTypeLabel("transfer")}</SelectItem>
+                {(!isEditing || initial?.type === "transfer") && (
+                  <SelectItem value="transfer">{txTypeLabel("transfer")}</SelectItem>
+                )}
               </SelectContent>
             </Select>
-            {isIncomeCategory && (
-              <p className="text-xs text-muted-foreground">Income category -- income only.</p>
-            )}
           </div>
 
           <div className="space-y-1.5">
@@ -463,16 +494,18 @@ export default function TransactionForm({
                     <CommandList>
                       <CommandEmpty>No category found.</CommandEmpty>
                       {rankedParentCategories.map((parent) => {
-                        const children = categories.filter(c => c.parent_id === parent.id);
+                        const children = compatibleCategories.filter(c => c.parent_id === parent.id);
                         return (
                           <CommandGroup key={parent.id} heading={parent.name}>
-                            <CommandItem
-                              value={parent.name}
-                              onSelect={() => { setCategoryId(parent.id); setCategoryOpen(false); }}
-                            >
-                              <Check className={cn("mr-2 h-4 w-4", categoryId === parent.id ? "opacity-100" : "opacity-0")} />
-                              {parent.name}
-                            </CommandItem>
+                            {compatibleCategoryIds.has(parent.id) && (
+                              <CommandItem
+                                value={parent.name}
+                                onSelect={() => { setCategoryId(parent.id); setCategoryOpen(false); }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", categoryId === parent.id ? "opacity-100" : "opacity-0")} />
+                                {parent.name}
+                              </CommandItem>
+                            )}
                             {children.map(child => (
                               <CommandItem
                                 key={child.id}

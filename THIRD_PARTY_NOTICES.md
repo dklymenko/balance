@@ -202,7 +202,7 @@ SOFTWARE.
 | parseurl | 1.3.3 | MIT |
 | path-to-regexp | 8.4.2 | MIT |
 | prebuild-install | 7.1.3 | MIT |
-| proxy-addr | 2.0.7 | MIT |
+| proxy-addr | 2.0.8 | MIT |
 | pump | 3.0.4 | MIT |
 | qs | 6.16.0 | BSD-3-Clause |
 | range-parser | 1.2.1 | MIT |
@@ -4983,7 +4983,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### proxy-addr 2.0.7
+### proxy-addr 2.0.8
 
 Declared license: MIT
 

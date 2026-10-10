@@ -12,8 +12,40 @@ function normalize(expr: string): string {
   return expr.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
 }
 
+// Remove conventional comma thousands separators from every numeric operand.
+// Grouping must be exact (1-3 leading digits, then groups of 3), so malformed
+// input such as "15,53.41" stays invalid instead of being silently reinterpreted.
+function normalizeThousandsSeparators(expr: string): string | null {
+  let result = "";
+  let number = "";
+
+  const flushNumber = () => {
+    if (number === "") return true;
+    if (number.includes(",")) {
+      if (!/^\d{1,3}(?:,\d{3})+(?:\.\d*)?$/.test(number)) return false;
+      result += number.replaceAll(",", "");
+    } else {
+      result += number;
+    }
+    number = "";
+    return true;
+  };
+
+  for (const ch of expr) {
+    if ((ch >= "0" && ch <= "9") || ch === "." || ch === ",") {
+      number += ch;
+    } else {
+      if (!flushNumber()) return null;
+      result += ch;
+    }
+  }
+
+  return flushNumber() ? result : null;
+}
+
 export function evalExpression(raw: string): number | null {
-  const expr = normalize(raw ?? "").trim();
+  const expr = normalizeThousandsSeparators(normalize(raw ?? "").trim());
+  if (expr === null) return null;
   if (expr === "") return null;
 
   // Tokenise into numbers and the operators + - * /. A leading '-' is treated as
@@ -55,7 +87,9 @@ export function evalExpression(raw: string): number | null {
     else if (op === "*") acc *= rhs;
     else if (op === "/") acc = rhs === 0 ? NaN : acc / rhs;
   }
-  return Number.isFinite(acc) ? acc : null;
+  // Remove ordinary IEEE-754 residue from decimal arithmetic (for example,
+  // 1000 + 553.41 must remain 1553.41, not 1553.4099999999999).
+  return Number.isFinite(acc) ? Number(acc.toFixed(12)) : null;
 }
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
