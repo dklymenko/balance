@@ -481,8 +481,11 @@ export default function TransactionForm({
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
-                  className="p-0"
-                  style={{ width: "var(--radix-popover-trigger-width)" }}
+                  className="max-h-[var(--radix-popover-content-available-height)] overflow-hidden p-0"
+                  style={{
+                    width: "var(--radix-popover-trigger-width)",
+                    maxHeight: "var(--radix-popover-content-available-height)",
+                  }}
                   align="start"
                 >
                   <Command>
@@ -491,7 +494,16 @@ export default function TransactionForm({
                       value={categorySearch}
                       onValueChange={setCategorySearch}
                     />
-                    <CommandList>
+                    <CommandList
+                      className="min-h-0 overscroll-contain touch-pan-y"
+                      style={{
+                        // Keep the searchable list within the space Radix leaves
+                        // on screen after positioning the popover. The input row
+                        // uses about 3rem, so reserve that before allowing the
+                        // results themselves to scroll (especially on mobile).
+                        maxHeight: "max(0px, min(300px, calc(var(--radix-popover-content-available-height) - 3rem)))",
+                      }}
+                    >
                       <CommandEmpty>No category found.</CommandEmpty>
                       {rankedParentCategories.map((parent) => {
                         const children = compatibleCategories.filter(c => c.parent_id === parent.id);
