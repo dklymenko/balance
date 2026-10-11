@@ -188,6 +188,17 @@ describe("TransactionForm -- accessible field names", () => {
 });
 
 describe("TransactionForm -- category search", () => {
+  it("keeps category results scrollable within the popover's available screen height", async () => {
+    renderForm({ categories: [{ id: 1, name: "Food", parent_id: null }] });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Category" }));
+
+    const list = await screen.findByRole("listbox");
+    expect(list).toHaveClass("overscroll-contain");
+    expect(list).toHaveClass("overflow-y-auto");
+    expect(list.getAttribute("style")).toContain("radix-popover-content-available-height");
+  });
+
   it("ranks a matching top-level category ahead of matching sub-categories", async () => {
     renderForm({
       categories: [
