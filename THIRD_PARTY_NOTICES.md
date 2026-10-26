@@ -109,7 +109,7 @@ SOFTWARE.
 | better-sqlite3-multiple-ciphers | 12.11.1 | MIT |
 | bindings | 1.5.0 | MIT |
 | bl | 4.1.0 | MIT |
-| body-parser | 2.3.0 | MIT |
+| body-parser | 2.4.0 | MIT |
 | buffer | 5.7.1 | MIT |
 | bytes | 3.1.2 | MIT |
 | call-bind-apply-helpers | 1.0.2 | MIT |
@@ -173,7 +173,7 @@ SOFTWARE.
 | has-symbols | 1.1.0 | MIT |
 | hasown | 2.0.4 | MIT |
 | http-errors | 2.0.1 | MIT |
-| iconv-lite | 0.7.2 | MIT |
+| iconv-lite | 0.7.3 | MIT |
 | ieee754 | 1.2.1 | BSD-3-Clause |
 | immer | 10.2.0 | MIT |
 | immer | 11.1.4 | MIT |
@@ -204,7 +204,7 @@ SOFTWARE.
 | prebuild-install | 7.1.3 | MIT |
 | proxy-addr | 2.0.8 | MIT |
 | pump | 3.0.4 | MIT |
-| qs | 6.16.0 | BSD-3-Clause |
+| qs | 6.16.1 | BSD-3-Clause |
 | range-parser | 1.2.1 | MIT |
 | raw-body | 3.0.2 | MIT |
 | rc | 1.2.8 | (BSD-2-Clause OR MIT OR Apache-2.0) |
@@ -1988,7 +1988,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### body-parser 2.3.0
+### body-parser 2.4.0
 
 Declared license: MIT
 
@@ -4217,7 +4217,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### iconv-lite 0.7.2
+### iconv-lite 0.7.3
 
 Declared license: MIT
 
@@ -5040,7 +5040,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### qs 6.16.0
+### qs 6.16.1
 
 Declared license: BSD-3-Clause
 
