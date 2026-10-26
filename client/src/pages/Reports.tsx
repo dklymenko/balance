@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Filter, TrendingDown, TrendingUp, X, Tags, BarChart3, GitCompare, type LucideIcon, Repeat } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, TrendingDown, TrendingUp, X, Tags, BarChart3, GitCompare, type LucideIcon, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import ReportFilterPanel, { ReportFilterChips, activeFilterCount, type ReportFilterState, type ReportTag } from "@/components/ReportFilterPanel";
+import ReportFilterBar, { type ReportFilterState, type ReportTag } from "@/components/ReportFilterPanel";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, Cell, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ReferenceDot,
@@ -13,6 +12,7 @@ import {
 import { categoryColor } from "@/lib/categoryColors";
 import PageContainer from "@/components/PageContainer";
 import SubscriptionsReport from "@/components/SubscriptionsReport";
+import CategoryDrillDown, { type DrillDownTarget } from "@/components/CategoryDrillDown";
 import { Skeleton } from "@/components/ui/skeleton";
 import { markReportViewed } from "@/lib/onboarding";
 import { useT } from "@/lib/i18n";
@@ -237,6 +237,8 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
   const t = useT();
   const [rows, setRows] = useState<SpendRow[]>([]);
   const [expanded, setExpanded] = useState<Set<number | null>>(new Set());
+  // Tapping a category opens its transactions, grouped by sub-category.
+  const [drill, setDrill] = useState<DrillDownTarget | null>(null);
   const [view, setView] = useState<"chart" | "table">("chart");
   const [amountMode, setAmountMode] = useState<"total" | "average">("total");
   const [loading, setLoading] = useState(true);
@@ -327,7 +329,8 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
           {t("reports.noSpend")}
         </div>
       ) : view === "chart" ? (
-        <div>
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Click a category to see its transactions.</p>
           {/* Ranked category list with proportional bars (single column;
               the grand total is already the headline above, so no donut) */}
           <div className="space-y-1">
@@ -336,9 +339,10 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
               const hasChildren = node.children.length > 0;
               const isExpanded = expanded.has(node.id);
               return (
-                <div key={node.id}>
-                  <button onClick={() => hasChildren && toggle(node.id)}
-                    className={cn("w-full rounded-lg px-2 py-2 text-left", hasChildren && "hover:bg-secondary")}>
+                <div key={node.id} className="flex items-start gap-1">
+                  <div className="min-w-0 flex-1">
+                  <button onClick={() => setDrill({ id: node.id, name: node.name })}
+                    className="w-full rounded-lg px-2 py-2 text-left hover:bg-secondary">
                     <div className="flex items-center gap-3">
                       <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: color }} />
                       <div className="min-w-0 flex-1">
@@ -353,26 +357,33 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                           <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{pct.toFixed(0)}%</span>
                         </div>
                       </div>
-                      {hasChildren && (isExpanded
-                        ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />)}
                     </div>
                   </button>
                   {hasChildren && isExpanded && (
-                    <div className="ml-6 space-y-1 border-l border-border pl-3">
+                    <div className="ml-6 space-y-0.5 border-l border-border pl-1">
                       {node.children.map(child => {
                         const cpct = grandTotal ? (child.total / grandTotal) * 100 : 0;
                         return (
-                          <div key={child.id} className="flex items-center justify-between gap-2 py-1 pr-2">
+                          <button key={child.id} onClick={() => setDrill({ id: child.id, name: child.name })}
+                            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary">
                             <span className="truncate text-sm text-muted-foreground">{child.name}</span>
                             <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
                               {fmt(child.total)} · {cpct.toFixed(0)}%
                             </span>
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
                   )}
+                  </div>
+                  {/* Expand in place without opening the transactions. */}
+                  {hasChildren ? (
+                    <button onClick={() => toggle(node.id)} aria-expanded={isExpanded}
+                      aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`}
+                      className="mt-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground">
+                      {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                    </button>
+                  ) : <span className="w-8 shrink-0" />}
                 </div>
               );
             })}
@@ -395,11 +406,16 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                 const hasChildren = node.children.length > 0;
                 return [
                   <tr key={`p-${node.id}`}
-                    className={cn("border-t border-border", hasChildren && "cursor-pointer hover:bg-secondary")}
-                    onClick={() => hasChildren && toggle(node.id)}>
+                    className="cursor-pointer border-t border-border hover:bg-secondary"
+                    onClick={() => setDrill({ id: node.id, name: node.name })}>
                     <td className="flex items-center gap-1.5 px-4 py-2 font-medium">
                       {hasChildren
-                        ? (isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />)
+                        ? (
+                          <button onClick={(e) => { e.stopPropagation(); toggle(node.id); }} aria-expanded={isExpanded}
+                            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`} className="-m-1 rounded p-1 hover:bg-muted">
+                            {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                          </button>
+                        )
                         : <span className="w-3.5" />}
                       {node.name}
                     </td>
@@ -409,7 +425,8 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                     </td>
                   </tr>,
                   ...(isExpanded ? node.children.map(child => (
-                    <tr key={`c-${child.id}`} className="border-t border-border bg-secondary/40">
+                    <tr key={`c-${child.id}`} className="cursor-pointer border-t border-border bg-secondary/40 hover:bg-secondary"
+                      onClick={() => setDrill({ id: child.id, name: child.name })}>
                       <td className="px-4 py-2 pl-10 text-muted-foreground">{child.name}</td>
                       <td className="px-4 py-2 text-right tabular-nums">{fmt(child.total)}</td>
                       <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
@@ -428,6 +445,9 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
           </table>
         </div>
       )}
+
+      <CategoryDrillDown target={drill} onClose={() => setDrill(null)} start={start} end={end}
+        accountIds={accountIds} tagIds={tagIds} categories={categories} rangeLabel={rangeLabel} />
     </div>
   );
 }
@@ -470,9 +490,9 @@ function useChartLabels(): [boolean, (v: boolean) => void] {
 
 function LabelsToggle({ show, onChange }: { show: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button type="button" aria-pressed={show} onClick={() => onChange(!show)}
+    <button type="button" aria-pressed={show} aria-label="Show values on chart" onClick={() => onChange(!show)}
       className={cn("rounded-full px-3 py-1 text-sm transition-colors", show ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>
-      Labels
+      Values
     </button>
   );
 }
@@ -1063,12 +1083,7 @@ export default function Reports() {
   const initial = period === "custom" ? periodToRange("this-month") : periodToRange(period);
   const [start, setStart] = useState(initial.start);
   const [end,   setEnd]   = useState(initial.end);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Desktop keeps rich filters in a persistent rail beside the chart; smaller
-  // screens open them in a sheet (from the right on tablets, bottom on phones).
-  const isWide = useMediaQuery("(min-width: 1280px)");
-  const isTablet = useMediaQuery("(min-width: 1024px)");
 
   function handlePeriodChange(p: Exclude<Period, "custom">) {
     setPeriod(p);
@@ -1111,13 +1126,6 @@ export default function Reports() {
   // landing page, and opening a report replaces it (back arrow returns).
   const current = REPORTS.find(r => r.id === view)!;
   const dims = FILTERS[view];
-  const showRail = isWide && (dims.categories || dims.tags);
-  const filterCount = activeFilterCount(filters, categories, dims.categories, dims.tags);
-  const filterProps = {
-    accounts, categories, tags,
-    showCategories: dims.categories, showTags: dims.tags,
-    value: filters, onChange: setFilters,
-  };
 
   return (
     <PageContainer className="py-4 lg:py-6">
@@ -1145,23 +1153,18 @@ export default function Reports() {
         })}
       </nav>
 
-      {/* Selected report (+ the desktop filter rail for reports with rich filters) */}
-      <div className={cn("min-w-0", showRail && "grid grid-cols-[minmax(0,1fr)_240px] items-start gap-6")}>
+      {/* Selected report */}
       <div className="min-w-0 space-y-4">
         {loadError && <ReportLoadError message={loadError} />}
-        <div className="flex items-center gap-2">
-          <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">{t(`reports.${current.id}`)}</h1>
-          {dims.accounts && !showRail && (
-            <button onClick={() => setFilterOpen(true)} aria-label="Filter"
-              className="relative flex h-9 w-9 items-center justify-center rounded-lg hover:bg-secondary">
-              <Filter className="h-5 w-5" />
-              {filterCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {filterCount}
-                </span>
-              )}
-            </button>
-          )}
+        {/* Title + the Labels / Categories / Accounts filter pop-ups on one row;
+            on a narrow window the buttons wrap under the title rather than
+            truncating it. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+          <h1 className="text-lg font-semibold tracking-tight">{t(`reports.${current.id}`)}</h1>
+          {/* Labels / Categories / Accounts filter pop-ups, on the title row. */}
+          <ReportFilterBar accounts={accounts} categories={categories} tags={tags}
+            showAccounts={dims.accounts} showCategories={dims.categories} showTags={dims.tags}
+            value={filters} onChange={setFilters} />
         </div>
 
         {/* Period chips (set varies per report). The -mx-4 lets the row bleed to
@@ -1183,9 +1186,6 @@ export default function Reports() {
         </div>
         )}
 
-        {/* Active filters stay visible (and removable) when the panel is closed. */}
-        {dims.accounts && !showRail && <ReportFilterChips {...filterProps} />}
-
         {/* Report content */}
         {view === "spend-by-category" && <SpendByCategory start={start} end={end} accountIds={filters.accountIds} tagIds={filters.tagIds} rangeLabel={label} categories={categories} />}
         {view === "spend-over-time" && <SpendOverTime start={start} end={end} accountIds={filters.accountIds} categoryIds={filters.categoryIds} tagIds={filters.tagIds} />}
@@ -1193,36 +1193,7 @@ export default function Reports() {
         {view === "period-comparison" && <PeriodComparison start={start} end={end} accountIds={filters.accountIds} categories={categories} />}
         {view === "subscriptions" && <SubscriptionsReport />}
       </div>
-
-      {showRail && (
-        <aside aria-label="Report filters" className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg border border-border p-3">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-semibold">Filters</p>
-            {filterCount > 0 && (
-              <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-xs text-muted-foreground hover:text-foreground">Clear all</button>
-            )}
-          </div>
-          <ReportFilterPanel {...filterProps} compact />
-        </aside>
-      )}
       </div>
-      </div>
-
-      {/* Filter sheet: bottom sheet on phones, side panel on tablets */}
-      <Sheet open={filterOpen && !showRail} onOpenChange={setFilterOpen}>
-        <SheetContent side={isTablet ? "right" : "bottom"} className={cn("flex flex-col gap-0 p-0", isTablet ? "w-96 sm:max-w-md" : "max-h-[85vh]")}>
-          <SheetHeader className="border-b border-border px-4 py-3 text-left">
-            <SheetTitle>Filters</SheetTitle>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-            <ReportFilterPanel {...filterProps} />
-          </div>
-          <div className="flex gap-2 border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button variant="outline" className="flex-1" disabled={filterCount === 0} onClick={() => setFilters(EMPTY_FILTERS)}>Clear all</Button>
-            <Button className="flex-1" onClick={() => setFilterOpen(false)}>Show results</Button>
-          </div>
-        </SheetContent>
-      </Sheet>
     </PageContainer>
   );
 }

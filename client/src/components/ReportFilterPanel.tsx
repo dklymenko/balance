@@ -1,128 +1,213 @@
-import { type ReactNode } from "react";
-import { X } from "lucide-react";
+import { useState, type ReactNode } from "react";
+import { ChevronDown, FolderTree, Search, Tag, Wallet, X, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import AccountFilter, { type FilterableAccount } from "@/components/AccountFilter";
-import { CategoryChecklist, CheckRow, categorySelectionChips, type ChecklistCategory } from "@/components/FilterChecklist";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { type FilterableAccount } from "@/components/AccountFilter";
+import { CategoryChecklist, CheckRow, categoryGroups, categorySelectionChips, type ChecklistCategory } from "@/components/FilterChecklist";
+import { visibleAccounts } from "@/lib/accountVisibility";
+import { ACCOUNT_GROUPS } from "@/lib/accountGroups";
+import { useMediaQuery } from "@/lib/useMediaQuery";
+import { useT } from "@/lib/i18n";
 
 export interface ReportTag { id: number; name: string }
 
-// The filter dimensions a report opts into. Accounts are always offered.
 export interface ReportFilterState {
   accountIds: Set<number>;
   categoryIds: Set<number>;
   tagIds: Set<number>;
 }
 
-export interface ReportFilterPanelProps {
+export interface ReportFilterBarProps {
   accounts: FilterableAccount[];
   categories: ChecklistCategory[];
   tags: ReportTag[];
+  showAccounts: boolean;
   showCategories: boolean;
   showTags: boolean;
   value: ReportFilterState;
   onChange: (next: ReportFilterState) => void;
-  // Desktop rail: cap each list so the rail stays a sidebar, not a page.
-  compact?: boolean;
 }
 
-function Section({ title, onClear, children }: { title: string; onClear?: () => void; children: ReactNode }) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">{title}</p>
-        {onClear
-          ? <button type="button" onClick={onClear} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
-          : <span className="text-xs text-muted-foreground">All</span>}
-      </div>
+// One filter button + its pop-up. Desktop opens a popover under the button;
+// phones open a bottom sheet. Either way the pop-up body is the ONLY scroll
+// area (no list scrolling inside a scrolling panel). An active filter shows
+// its selection on the button and an × beside it to clear it in one tap.
+function FilterButton({ icon: Icon, label, summary, count, onClear, children }: {
+  icon: LucideIcon; label: string; summary: string | null; count: number;
+  onClear: () => void; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const active = count > 0;
+
+  const trigger = (
+    <button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open}
+      onClick={isDesktop ? undefined : () => setOpen(true)}
+      className={cn(
+        "flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+        active ? "border-primary bg-primary/10 font-medium text-primary" : "border-border text-muted-foreground hover:text-foreground",
+      )}>
+      <Icon className="h-4 w-4 shrink-0" />
+      {/* Phones show the icon + count; wider screens add the label/summary. */}
+      <span className="hidden max-w-40 truncate sm:inline">{summary ?? label}</span>
+      {active && <span className="tabular-nums sm:hidden">{count}</span>}
+      <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 opacity-60 sm:block" />
+    </button>
+  );
+
+  const body = (
+    <div className="flex min-h-0 flex-1 flex-col">
       {children}
+      <div className="flex gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <Button variant="outline" className="flex-1" disabled={!active} onClick={onClear}>Clear</Button>
+        <Button className="flex-1" onClick={() => setOpen(false)}>Done</Button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex shrink-0 items-center">
+      {isDesktop ? (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+          <PopoverContent align="end" collisionPadding={16}
+            className="flex max-h-[min(70vh,var(--radix-popover-content-available-height))] w-80 flex-col p-0">
+            {body}
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <>
+          {trigger}
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetContent side="bottom" className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0">
+              <SheetHeader className="border-b border-border px-4 py-3 text-left">
+                <SheetTitle>{label}</SheetTitle>
+              </SheetHeader>
+              {body}
+            </SheetContent>
+          </Sheet>
+        </>
+      )}
+      {active && (
+        <button type="button" onClick={onClear} aria-label={`Clear ${label.toLowerCase()} filter`}
+          className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      )}
     </div>
   );
 }
 
-// Same pickers as the Transactions filter: grouped accounts, hierarchical
-// categories (a parent toggles its whole group) and labels. An empty
-// selection means "everything".
-export default function ReportFilterPanel(p: ReportFilterPanelProps) {
-  const { value, onChange } = p;
-  const listClass = cn("space-y-0.5", p.compact && "max-h-72 overflow-y-auto rounded-md border border-border p-1");
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative border-b border-border p-3">
+      <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="pl-8" />
+    </div>
+  );
+}
 
-  function toggleTag(id: number) {
-    const next = new Set(value.tagIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    onChange({ ...value, tagIds: next });
-  }
+function ScrollBody({ children }: { children: ReactNode }) {
+  return <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">{children}</div>;
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="px-2 py-6 text-center text-sm text-muted-foreground">{children}</p>;
+}
+
+// "Trip" / "Trip, Work" / "3 selected" -- what an active button reads.
+function summarize(names: string[]): string | null {
+  if (names.length === 0) return null;
+  if (names.length <= 2) return names.join(", ");
+  return `${names.length} selected`;
+}
+
+function toggle(set: Set<number>, id: number): Set<number> {
+  const next = new Set(set);
+  if (next.has(id)) next.delete(id); else next.add(id);
+  return next;
+}
+
+// The Labels / Categories / Accounts filter buttons a report sits under, in
+// that order. An empty selection means "everything".
+export default function ReportFilterBar(p: ReportFilterBarProps) {
+  const t = useT();
+  const { value, onChange } = p;
+  const [catQuery, setCatQuery] = useState("");
+  const [accQuery, setAccQuery] = useState("");
+
+  const tagNames = p.tags.filter((tg) => value.tagIds.has(tg.id)).map((tg) => tg.name);
+  const catChips = categorySelectionChips(p.categories, value.categoryIds);
+  const shownAccounts = visibleAccounts(p.accounts);
+  const accNames = shownAccounts.filter((a) => value.accountIds.has(a.id)).map((a) => a.name);
+
+  // Category search keeps a whole group when its parent matches, otherwise
+  // just the matching children under their parent.
+  const q = catQuery.trim().toLowerCase();
+  const filteredCats = q
+    ? categoryGroups(p.categories).flatMap(({ parent, children }) => {
+        if (parent.name.toLowerCase().includes(q)) return [parent, ...children];
+        const kids = children.filter((c) => c.name.toLowerCase().includes(q));
+        return kids.length ? [parent, ...kids] : [];
+      })
+    : p.categories;
+  const aq = accQuery.trim().toLowerCase();
 
   return (
-    <div className="space-y-5">
-      <AccountFilter accounts={p.accounts} selected={value.accountIds} onChange={(accountIds) => onChange({ ...value, accountIds })} />
+    <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      {p.showTags && p.tags.length > 0 && (
+        <FilterButton icon={Tag} label="Labels" summary={summarize(tagNames)} count={value.tagIds.size}
+          onClear={() => onChange({ ...value, tagIds: new Set() })}>
+          <ScrollBody>
+            {p.tags.map((tg) => (
+              <CheckRow key={tg.id} checked={value.tagIds.has(tg.id)}
+                onClick={() => onChange({ ...value, tagIds: toggle(value.tagIds, tg.id) })}>
+                {tg.name}
+              </CheckRow>
+            ))}
+          </ScrollBody>
+        </FilterButton>
+      )}
 
       {p.showCategories && p.categories.length > 0 && (
-        <Section title="Categories" onClear={value.categoryIds.size > 0 ? () => onChange({ ...value, categoryIds: new Set() }) : undefined}>
-          <div className={listClass}>
-            <CategoryChecklist categories={p.categories} selected={value.categoryIds}
-              onChange={(categoryIds) => onChange({ ...value, categoryIds })} />
-          </div>
-        </Section>
+        <FilterButton icon={FolderTree} label="Categories" summary={summarize(catChips.map((c) => c.label))} count={catChips.length}
+          onClear={() => onChange({ ...value, categoryIds: new Set() })}>
+          <SearchBox value={catQuery} onChange={setCatQuery} placeholder="Search categories" />
+          <ScrollBody>
+            {filteredCats.length > 0
+              ? <CategoryChecklist categories={filteredCats} selected={value.categoryIds}
+                  onChange={(categoryIds) => onChange({ ...value, categoryIds })} />
+              : <Empty>No categories match.</Empty>}
+          </ScrollBody>
+        </FilterButton>
       )}
 
-      {p.showTags && p.tags.length > 0 && (
-        <Section title="Labels" onClear={value.tagIds.size > 0 ? () => onChange({ ...value, tagIds: new Set() }) : undefined}>
-          <div className={listClass}>
-            {p.tags.map((t) => (
-              <CheckRow key={t.id} checked={value.tagIds.has(t.id)} onClick={() => toggleTag(t.id)}>{t.name}</CheckRow>
-            ))}
-          </div>
-        </Section>
+      {p.showAccounts && (
+        <FilterButton icon={Wallet} label="Accounts" summary={summarize(accNames)} count={accNames.length}
+          onClear={() => onChange({ ...value, accountIds: new Set() })}>
+          {shownAccounts.length > 8 && <SearchBox value={accQuery} onChange={setAccQuery} placeholder="Search accounts" />}
+          <ScrollBody>
+            {ACCOUNT_GROUPS.map(({ key, filter }) => {
+              const group = shownAccounts.filter(filter).filter((a) => !aq || a.name.toLowerCase().includes(aq));
+              if (group.length === 0) return null;
+              return (
+                <div key={key} className="pb-1">
+                  <p className="px-2 pb-0.5 pt-2 text-xs text-muted-foreground">{t(`accountGroup.${key}`)}</p>
+                  {group.map((a) => (
+                    <CheckRow key={a.id} checked={value.accountIds.has(a.id)}
+                      onClick={() => onChange({ ...value, accountIds: toggle(value.accountIds, a.id) })}>
+                      {a.name}
+                    </CheckRow>
+                  ))}
+                </div>
+              );
+            })}
+          </ScrollBody>
+        </FilterButton>
       )}
     </div>
   );
-}
-
-// Removable chips summarising the active filters, so a filter applied in the
-// mobile sheet stays visible (and one tap away from removal) on the report.
-export function ReportFilterChips({ accounts, categories, tags, showCategories, showTags, value, onChange }: Omit<ReportFilterPanelProps, "compact">) {
-  const chips: { key: string; label: string; remove: () => void }[] = [];
-  for (const a of accounts) {
-    if (!value.accountIds.has(a.id)) continue;
-    chips.push({ key: `a${a.id}`, label: a.name, remove: () => {
-      const next = new Set(value.accountIds); next.delete(a.id); onChange({ ...value, accountIds: next });
-    } });
-  }
-  if (showCategories) {
-    for (const c of categorySelectionChips(categories, value.categoryIds)) {
-      chips.push({ key: `c${c.ids.join("-")}`, label: c.label, remove: () => {
-        const next = new Set(value.categoryIds); for (const id of c.ids) next.delete(id); onChange({ ...value, categoryIds: next });
-      } });
-    }
-  }
-  if (showTags) {
-    for (const t of tags) {
-      if (!value.tagIds.has(t.id)) continue;
-      chips.push({ key: `t${t.id}`, label: `#${t.name}`, remove: () => {
-        const next = new Set(value.tagIds); next.delete(t.id); onChange({ ...value, tagIds: next });
-      } });
-    }
-  }
-  if (chips.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {chips.map((c) => (
-        <span key={c.key} className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-secondary/60 py-0.5 pl-2.5 pr-1 text-xs">
-          <span className="truncate">{c.label}</span>
-          <button type="button" onClick={c.remove} aria-label={`Remove ${c.label}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground">
-            <X className="h-3 w-3" />
-          </button>
-        </span>
-      ))}
-    </div>
-  );
-}
-
-// Number of active filters for the given dimensions (the badge count); a
-// fully-selected category group counts once, matching its single chip.
-export function activeFilterCount(value: ReportFilterState, categories: ChecklistCategory[], showCategories: boolean, showTags: boolean): number {
-  return value.accountIds.size
-    + (showCategories ? categorySelectionChips(categories, value.categoryIds).length : 0)
-    + (showTags ? value.tagIds.size : 0);
 }

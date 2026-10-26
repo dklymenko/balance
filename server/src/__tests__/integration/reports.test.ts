@@ -126,3 +126,44 @@ describe("reports label filter", () => {
     expect((await request(app).get("/api/reports/spend-over-time?tag_ids=1,-2")).status).toBe(400);
   });
 });
+
+describe("spend-by-category drill-down transactions", () => {
+  let app: Awaited<ReturnType<typeof makeApp>>["app"];
+  let food: number;
+  let groceries: number;
+  let trip: number;
+
+  beforeEach(async () => {
+    ({ app } = await makeApp());
+    const accId = (await request(app).post("/api/accounts").send(ACCOUNT)).body.id;
+    food = (await request(app).post("/api/categories").send({ name: "Food", parent_id: null })).body.id;
+    groceries = (await request(app).post("/api/categories").send({ name: "Groceries", parent_id: food })).body.id;
+    trip = (await request(app).post("/api/tags").send({ name: "Trip" })).body.id;
+    const store = (await request(app).post("/api/transactions").send(tx(accId, { category_id: groceries, date: "2025-03-02", description: "Store", amount_fx: 60, amount_usd: 60 }))).body.id;
+    await request(app).put(`/api/tags/transaction/${store}`).send({ tag_ids: [trip] });
+    await request(app).post("/api/transactions").send(tx(accId, { category_id: food, date: "2025-03-05", description: "Snack", amount_fx: 5, amount_usd: 5 }));
+    await request(app).post("/api/transactions").send(tx(accId, { category_id: groceries, date: "2025-03-09", description: "Hidden", amount_fx: 40, amount_usd: 40, exclude_from_reports: true }));
+    await request(app).post("/api/transactions").send(tx(accId, { date: "2025-03-10", description: "Mystery", amount_fx: 9, amount_usd: 9 }));
+    await request(app).post("/api/transactions").send(tx(accId, { category_id: groceries, date: "2025-03-11", description: "Refund", amount_fx: 3, amount_usd: 3, type: "credit" }));
+  });
+
+  it("returns the report's debit rows for the categories, newest first, honouring exclusions", async () => {
+    const res = await request(app).get(`/api/reports/spend-by-category/transactions?start=2025-01&end=2025-12&category_ids=${food},${groceries}`);
+    expect(res.status).toBe(200);
+    expect(res.body.map((r: { description: string }) => r.description)).toEqual(["Snack", "Store"]);
+    expect(res.body[1]).toMatchObject({ amount_usd: 60, category_id: groceries, account_name: "Checking" });
+    const report = (await request(app).get("/api/reports/spend-by-category?start=2025-01&end=2025-12")).body;
+    const reportFood = report.filter((r: { category_id: number | null }) => r.category_id === food || r.category_id === groceries)
+      .reduce((s: number, r: { total_usd: number }) => s + r.total_usd, 0);
+    expect(res.body.reduce((s: number, r: { amount_usd: number }) => s + r.amount_usd, 0)).toBe(reportFood);
+  });
+
+  it("supports uncategorized and the label filter, and validates input", async () => {
+    const unc = await request(app).get("/api/reports/spend-by-category/transactions?start=2025-01&end=2025-12&uncategorized=1");
+    expect(unc.body.map((r: { description: string }) => r.description)).toEqual(["Mystery"]);
+    const tagged = await request(app).get(`/api/reports/spend-by-category/transactions?start=2025-01&end=2025-12&category_ids=${food},${groceries}&tag_ids=${trip}`);
+    expect(tagged.body.map((r: { description: string }) => r.description)).toEqual(["Store"]);
+    expect((await request(app).get("/api/reports/spend-by-category/transactions?start=2025-01&end=2025-12")).status).toBe(400);
+    expect((await request(app).get("/api/reports/spend-by-category/transactions?category_ids=x")).status).toBe(400);
+  });
+});
