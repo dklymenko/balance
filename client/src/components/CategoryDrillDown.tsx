@@ -58,7 +58,7 @@ function formatDay(iso: string): string {
 }
 
 // Transactions behind one Spend by Category row. A side panel on desktop,
-// a bottom sheet on phones; the list is the panel's only scroll area.
+// a sheet dropping from the top on narrow windows; the list is the panel's only scroll area.
 export default function CategoryDrillDown({ target, onClose, start, end, accountIds, tagIds, categories, rangeLabel }: {
   target: DrillDownTarget | null;
   onClose: () => void;
@@ -104,15 +104,19 @@ export default function CategoryDrillDown({ target, onClose, start, end, account
 
   return (
     <Sheet open={target !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent side={isDesktop ? "right" : "bottom"}
-        className={isDesktop ? "flex w-full flex-col gap-0 p-0 sm:max-w-lg" : "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0"}>
+      {/* Narrow windows: drops down from the top, like the filter pickers,
+          rather than a sheet pinned to the bottom edge. */}
+      <SheetContent side={isDesktop ? "right" : "top"}
+        className={isDesktop
+          ? "flex w-full flex-col gap-0 p-0 sm:max-w-lg"
+          : "top-[env(safe-area-inset-top)] flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0"}>
         <SheetHeader className="space-y-0.5 border-b border-border px-4 py-3 pr-12 text-left">
           <SheetTitle className="truncate">{target?.name}</SheetTitle>
           <SheetDescription>
             {loading ? "Loading…" : `${USD.format(total)} · ${rows.length} transaction${rows.length === 1 ? "" : "s"} · ${rangeLabel}`}
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {error ? (
             <p role="alert" className="p-4 text-sm text-red-600">{error}</p>
           ) : loading ? (
