@@ -97,3 +97,35 @@ describe("Net income trend summary", () => {
     });
   });
 });
+
+describe("Reports -- Spend Over Time filters", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    const categories = [
+      { id: 11, name: "ABA", parent_id: 1 },
+      { id: 21, name: "Airbnb", parent_id: 2 },
+      { id: 1, name: "Kids", parent_id: null },
+      { id: 2, name: "Travel", parent_id: null },
+    ];
+    const tags = [{ id: 5, name: "Trip" }];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => ({
+      ok: true, status: 200,
+      json: async () => (String(url).startsWith("/api/categories") ? categories : String(url).startsWith("/api/tags") ? tags : []),
+    })) as unknown as typeof fetch);
+  });
+
+  it("lists categories parent → children and filters by label", async () => {
+    render(<Reports />);
+    fireEvent.click(await screen.findByRole("button", { name: /Spend Over Time/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
+
+    const names = (await screen.findAllByRole("checkbox"))
+      .map(el => el.textContent)
+      .filter(n => ["ABA", "Airbnb", "Kids", "Travel"].includes(n ?? ""));
+    expect(names).toEqual(["Kids", "ABA", "Travel", "Airbnb"]);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Trip" }));
+    const calls = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map(([u]) => String(u));
+    expect(calls.some(u => u.startsWith("/api/reports/spend-over-time") && u.includes("tag_ids=5"))).toBe(true);
+  });
+});

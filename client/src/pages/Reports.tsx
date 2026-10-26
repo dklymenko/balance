@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Filter, TrendingDown, TrendingUp, Tags, BarChart3, GitCompare, type LucideIcon, Repeat } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Filter, TrendingDown, TrendingUp, X, Tags, BarChart3, GitCompare, type LucideIcon, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import AccountFilter from "@/components/AccountFilter";
+import ReportFilterPanel, { ReportFilterChips, activeFilterCount, type ReportFilterState, type ReportTag } from "@/components/ReportFilterPanel";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
-  ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, Cell,
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, ComposedChart, Cell, LabelList,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ReferenceDot,
 } from "recharts";
 import { categoryColor } from "@/lib/categoryColors";
@@ -53,6 +54,24 @@ const REPORTS: { id: ReportId; label: string; icon: LucideIcon }[] = [
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const USD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+// Compact axis ticks ($75K, not $75,000) -- only for chart axes, never for
+// totals, which stay full-precision via USD above.
+function compactUSD(v: number): string {
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  return abs >= 1000 ? `${sign}$${Math.round(abs / 1000)}K` : `${sign}$${abs}`;
+}
+
+// Strip focus/selection affordances from a chart region: recharts marks SVG
+// groups focusable, and the browser draws a focus ring on click.
+const CHART_WRAPPER_CLASS = "select-none [-webkit-tap-highlight-color:transparent] [&_*]:outline-none [&_*]:focus:outline-none [&_*]:focus-visible:outline-none";
+
+// Recharts v3 only populates the click payload's active index while some
+// <Tooltip> is mounted; this one tracks clicks and renders nothing.
+function AxisClickTracker() {
+  return <Tooltip content={() => null} cursor={false} trigger="click" />;
+}
 
 function ym(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -125,13 +144,6 @@ function monthsInRange(start: string, end: string): number {
   const [ey, em] = end.split("-").map(Number);
   if (![sy, sm, ey, em].every(Number.isFinite)) return 1;
   return Math.max(1, (ey - sy) * 12 + (em - sm) + 1);
-}
-
-function toggleSet(prev: Set<number>, id: number): Set<number> {
-  const next = new Set(prev);
-  if (next.has(id)) next.delete(id);
-  else next.add(id);
-  return next;
 }
 
 // ─── Period selector (Spend by Category) ─────────────────────────────────────
@@ -217,55 +229,10 @@ function MonthYearPicker({ value, onChange }: { value: string; onChange: (v: str
   );
 }
 
-// ─── IncludePicker ───────────────────────────────────────────────────────────
-// Plain multi-select checkbox list: the chosen items are included; when none are
-// chosen, everything is shown.
-
-function IncludePicker({ title, items, selected, onChange }: {
-  title: string;
-  items: { id: number; name: string; indent?: boolean }[];
-  selected: Set<number>;
-  onChange: (s: Set<number>) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="shrink-0 text-xs font-medium uppercase tracking-widest text-muted-foreground">{title}</span>
-        {selected.size > 0
-          ? <button onClick={() => onChange(new Set())} className="text-xs text-muted-foreground hover:text-foreground">Clear</button>
-          : <span className="text-xs text-muted-foreground">All</span>}
-      </div>
-      <div className="max-h-44 space-y-0.5 overflow-y-auto">
-        {items.map(item => {
-          const sel = selected.has(item.id);
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="checkbox"
-              aria-checked={sel}
-              onClick={() => onChange(toggleSet(selected, item.id))}
-              className={cn("flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted", item.indent && "pl-6")}
-            >
-              <span className={cn(
-                "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
-                sel ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
-              )}>
-                {sel && <Check className="h-3 w-3" />}
-              </span>
-              <span className={cn("truncate", item.indent && "text-muted-foreground")}>{item.name}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ─── Spend by Category ───────────────────────────────────────────────────────
 
-function SpendByCategory({ start, end, accountIds, rangeLabel, categories }: {
-  start: string; end: string; accountIds: Set<number>; rangeLabel: string; categories: Category[];
+function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categories }: {
+  start: string; end: string; accountIds: Set<number>; tagIds: Set<number>; rangeLabel: string; categories: Category[];
 }) {
   const t = useT();
   const [rows, setRows] = useState<SpendRow[]>([]);
@@ -279,7 +246,7 @@ function SpendByCategory({ start, end, accountIds, rangeLabel, categories }: {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    const params = qs({ start, end, account_ids: [...accountIds].join(",") });
+    const params = qs({ start, end, account_ids: [...accountIds].join(","), tag_ids: [...tagIds].join(",") });
     void fetchJson<unknown>(`/api/reports/spend-by-category${params}`, controller.signal)
       .then((data) => {
         if (!Array.isArray(data)) throw new Error("Invalid report response");
@@ -290,7 +257,7 @@ function SpendByCategory({ start, end, accountIds, rangeLabel, categories }: {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [start, end, accountIds]);
+  }, [start, end, accountIds, tagIds]);
 
   const tree = useMemo(() => buildCategoryTree(rows, categories), [rows, categories]);
   const grandTotal = tree.reduce((s, n) => s + n.total, 0);
@@ -467,17 +434,66 @@ function SpendByCategory({ start, end, accountIds, rangeLabel, categories }: {
 
 // ─── Spend Over Time ─────────────────────────────────────────────────────────
 
-function SpendOverTime({ start, end, accounts, categories }: {
-  start: string; end: string; accounts: Account[]; categories: Category[];
+// On-bar data labels: a bit more precision than the axis ticks ($1.2K, not
+// $1K) while still fitting above a narrow mobile bar.
+function barValueLabel(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  const abs = Math.abs(n);
+  if (abs < 1000) return `$${Math.round(abs)}`;
+  if (abs < 10000) return `$${(abs / 1000).toFixed(1).replace(/\.0$/, "")}K`;
+  return `$${Math.round(abs / 1000)}K`;
+}
+
+// Recharts v3 click payloads differ per element; accept any shape that
+// carries an index (falls back to the tooltip index for empty-column taps).
+function chartIndex(state: unknown): number | null {
+  const st = state as { activeTooltipIndex?: number | string; activeIndex?: number | string } | null;
+  const raw = st?.activeIndex ?? st?.activeTooltipIndex;
+  const idx = typeof raw === "string" ? Number(raw) : raw;
+  return typeof idx === "number" && Number.isFinite(idx) ? idx : null;
+}
+
+// On-chart value labels can be switched off; the choice is shared by every
+// chart on the page and remembered across sessions.
+const REPORTS_LABELS_KEY = "balance-reports-labels";
+function useChartLabels(): [boolean, (v: boolean) => void] {
+  const [show, setShow] = useState(() => {
+    try { return localStorage.getItem(REPORTS_LABELS_KEY) !== "off"; } catch { return true; }
+  });
+  const update = (v: boolean) => {
+    setShow(v);
+    try { localStorage.setItem(REPORTS_LABELS_KEY, v ? "on" : "off"); } catch { /* storage unavailable */ }
+  };
+  return [show, update];
+}
+
+function LabelsToggle({ show, onChange }: { show: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button type="button" aria-pressed={show} onClick={() => onChange(!show)}
+      className={cn("rounded-full px-3 py-1 text-sm transition-colors", show ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>
+      Labels
+    </button>
+  );
+}
+
+function SpendOverTime({ start, end, accountIds, categoryIds, tagIds }: {
+  start: string; end: string; accountIds: Set<number>; categoryIds: Set<number>; tagIds: Set<number>;
 }) {
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  const [showLabels, setShowLabels] = useChartLabels();
   const [data, setData] = useState<{ period: string; total_usd: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Clicking a bar inspects that one month; the headline keeps the period's
+  // total. Tap the same bar again (or ×) to clear.
+  const [selected, setSelected] = useState<number | null>(null);
 
-  const [accIds, setAccIds] = useState<Set<number>>(new Set());
-  const [catIds, setCatIds] = useState<Set<number>>(new Set());
-
-  const windowMonths = useMemo(() => reportMonths(start, end), [start, end]);
+  // The chart shows the selected period itself once it spans 6+ months.
+  // Shorter periods sit at the end of a 12-month context window (earlier
+  // months drawn lighter), so one month never renders as one lonely bar.
+  const span = monthSpan(start, end);
+  const windowMonths = useMemo(() => reportMonths(shiftYm(end, -((span >= 6 ? span : 12) - 1)), end), [end, span]);
   const winStart = windowMonths[0];
   const winEnd = windowMonths[windowMonths.length - 1];
 
@@ -485,70 +501,119 @@ function SpendOverTime({ start, end, accounts, categories }: {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    // Multi-select include: chosen ids are shown; none chosen = everything.
-    const effAcc = accIds.size > 0 ? [...accIds] : [];
-    const effCat = catIds.size > 0 ? [...catIds] : [];
-    const params = qs({ start: winStart, end: winEnd, account_ids: effAcc.join(","), category_ids: effCat.join(",") });
+    setSelected(null); // the window shifted; a stale index would point at the wrong month
+    const params = qs({
+      start: winStart, end: winEnd,
+      account_ids: [...accountIds].join(","), category_ids: [...categoryIds].join(","), tag_ids: [...tagIds].join(","),
+    });
     void fetchJson<unknown>(`/api/reports/spend-over-time${params}`, controller.signal)
-      .then((d) => {
-        if (!Array.isArray(d)) throw new Error("Invalid report response");
-        setData(d);
+      .then((result) => {
+        if (!Array.isArray(result)) throw new Error("Invalid report response");
+        setData(result);
       })
       .catch(() => { if (!controller.signal.aborted) setError("Couldn't load spending over time."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [winStart, winEnd, accIds, catIds, accounts, categories]);
+  }, [winStart, winEnd, accountIds, categoryIds, tagIds]);
 
   const byPeriod = new Map(data.map(d => [d.period, Math.round(d.total_usd)]));
-  const bars = windowMonths.map(ym => ({ period: ym, label: barLabel(ym), value: byPeriod.get(ym) ?? 0, current: ym === end }));
-  const focusValue = byPeriod.get(end) ?? 0;
-  const last3 = bars.slice(-Math.min(3, bars.length)).map(b => b.value);
-  const avg = last3.length ? Math.round(last3.reduce((s, v) => s + v, 0) / last3.length) : 0;
-
-  const accItems = accounts.map(a => ({ id: a.id, name: a.name }));
-  const catItems = categories.map(c => ({ id: c.id, name: c.name, indent: c.parent_id !== null }));
+  const bars = windowMonths.map(m => ({ period: m, value: byPeriod.get(m) ?? 0, inRange: m >= start && m <= end }));
+  const total = bars.reduce((s, b) => s + (b.inRange ? b.value : 0), 0);
+  const avg = span > 1 ? Math.round(total / span) : 0;
+  const sel = selected != null ? bars[selected] : undefined;
+  const selVsAvg = sel && avg > 0 ? Math.round(((sel.value - avg) / avg) * 100) : null;
+  const hasContext = bars.some(b => !b.inRange);
+  const inRangeBars = bars.filter(b => b.inRange);
 
   if (error) return <ReportLoadError message={error} />;
 
   return (
-    <div className="space-y-5">
-      {/* Headline: the selected month's spend */}
+    <div className="space-y-4">
+      {/* Headline: the selected period's total and its monthly average. */}
       <div>
-        {loading ? (
-          <Skeleton className="h-9 w-40" />
-        ) : (
-          <p className="text-3xl font-bold leading-tight tabular-nums">{USD.format(focusValue)}</p>
-        )}
-        <p className="text-sm text-muted-foreground">{monthLabel(end)}</p>
+        <div className="flex flex-wrap items-end gap-x-8 gap-y-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Total</p>
+            {loading ? <Skeleton className="h-9 w-40" /> : <p className="text-3xl font-bold leading-tight tabular-nums">{USD.format(total)}</p>}
+          </div>
+          {span > 1 && (
+            <div>
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">Avg / month</p>
+              {loading ? <Skeleton className="h-7 w-28" /> : <p className="text-xl font-semibold leading-tight tabular-nums">{USD.format(avg)}</p>}
+            </div>
+          )}
+        </div>
+        <p className="mt-1 text-sm text-muted-foreground">{rangeLabel(start, end)}</p>
       </div>
 
       {loading ? (
-        <div className="h-56 animate-pulse rounded-lg bg-secondary" />
+        <div className="h-56 animate-pulse rounded-lg bg-secondary lg:h-72" />
+      ) : bars.every(b => b.value === 0) ? (
+        <div className="rounded-lg border border-border p-8 text-center text-sm text-muted-foreground">
+          No spending matches these filters in {rangeLabel(winStart, winEnd)}.
+        </div>
       ) : (
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={bars} margin={{ top: 24, right: 0, left: 0, bottom: 0 }} barCategoryGap="16%">
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false} interval={0} />
-            {avg > 0 && bars.length > 1 && (
-              <ReferenceLine y={avg} stroke="var(--text-tertiary)" strokeDasharray="4 2"
-                label={{ value: `Average over ${last3.length} months ${USD.format(avg)}`, position: "insideTopLeft", fill: "var(--text-secondary)", fontSize: 12, dy: 6 }} />
-            )}
-            <Tooltip
-              formatter={(v) => [USD.format(Number(v)), "Spend"]}
-              contentStyle={TOOLTIP_STYLE}
-              cursor={{ fill: "var(--border-subtle)" }}
-            />
-            <Bar dataKey="value" radius={0} maxBarSize={40} isAnimationActive={false}>
-              {bars.map((b, i) => <Cell key={i} fill={b.current ? "var(--chart-selected)" : "var(--chart-bar)"} />)}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
+        <>
+          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {hasContext && <>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--chart-selected)", opacity: 0.75 }} />Selected period</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: "var(--chart-bar)" }} />Earlier</span>
+              </>}
+              {avg > 0 && <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-dashed" style={{ borderColor: "var(--text-tertiary)" }} />Avg / month</span>}
+            </span>
+            <LabelsToggle show={showLabels} onChange={setShowLabels} />
+          </div>
+          <div className={cn("h-56 w-full lg:h-72", CHART_WRAPPER_CLASS)}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={bars} margin={{ top: showLabels ? 20 : 8, right: 4, left: 0, bottom: 0 }} barCategoryGap="18%"
+                onClick={(state: unknown) => { const i = chartIndex(state); if (i != null) setSelected(prev => (prev === i ? null : i)); }}
+                accessibilityLayer={false}>
+                <AxisClickTracker />
+                <CartesianGrid horizontal vertical={false} stroke="var(--border-subtle)" />
+                <XAxis dataKey="period" tickFormatter={barLabel} tick={{ fontSize: 12, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false}
+                  interval={bars.length > 12 ? "preserveStartEnd" : 0} />
+                <YAxis hide={!isDesktop} tick={{ fontSize: 11, fill: "var(--text-tertiary)" }} axisLine={false} tickLine={false} width={44}
+                  tickFormatter={compactUSD} />
+                {/* The average spans only the months it averages. */}
+                {avg > 0 && (
+                  <ReferenceLine stroke="var(--text-tertiary)" strokeWidth={1.5} strokeDasharray="4 3" ifOverflow="extendDomain"
+                    segment={[{ x: inRangeBars[0].period, y: avg }, { x: inRangeBars[inRangeBars.length - 1].period, y: avg }]} />
+                )}
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40} isAnimationActive={false}>
+                  {bars.map((b, i) => (
+                    <Cell key={b.period}
+                      fill={b.inRange || i === selected ? "var(--chart-selected)" : "var(--chart-bar)"}
+                      fillOpacity={i === selected ? 1 : b.inRange ? (selected == null ? 0.75 : 0.45) : 1} />
+                  ))}
+                  {showLabels && <LabelList dataKey="value" position="top" formatter={barValueLabel} fontSize={10} fill="var(--text-secondary)" />}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
 
-      {/* Filters (secondary, below the chart) -- plain multi-select include pickers */}
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <IncludePicker title="Accounts" items={accItems} selected={accIds} onChange={setAccIds} />
-        <IncludePicker title="Categories" items={catItems} selected={catIds} onChange={setCatIds} />
-      </div>
+          {/* Selected-month readout -- persistent, replaces a floating tooltip. */}
+          {sel ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-4 py-2.5 text-sm">
+              <span className="text-muted-foreground">{monthLabel(sel.period)}</span>
+              <span className="flex items-center gap-3">
+                <span className="font-semibold tabular-nums">{USD.format(sel.value)}</span>
+                {selVsAvg != null && (
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {selVsAvg === 0 ? "at avg" : `${selVsAvg > 0 ? "+" : "−"}${Math.abs(selVsAvg)}% vs avg`}
+                  </span>
+                )}
+                <button type="button" onClick={() => setSelected(null)} aria-label="Clear selected month"
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Tap a bar to inspect that month.</p>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -590,9 +655,13 @@ function LegendRow({ color, label, value, bar = false }: { color: string; label:
 const NET_TEAL = "#3E8E86";
 
 // The Net-income trend: Income/Spending lines on top, Net-income bars + EMA below,
-// with ITS OWN period control (6m/1y/3y/All time), independent of the report period.
-function NetIncomeTrend({ end, accountIds }: { end: string; accountIds: Set<number> }) {
+// with ITS OWN period control (6m/1y/3y/All time), independent of the report
+// period -- it always runs through the current month, so picking "Last year"
+// above never drops the latest buckets from the trend.
+function NetIncomeTrend({ accountIds }: { accountIds: Set<number> }) {
   const [tp, setTp] = useState<"6m" | "1y" | "3y" | "all">("6m");
+  const [showLabels, setShowLabels] = useChartLabels();
+  const end = ym(new Date());
   const [data, setData] = useState<ISSRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -644,44 +713,49 @@ function NetIncomeTrend({ end, accountIds }: { end: string; accountIds: Set<numb
 
           {/* Top panel: Income + Spending lines */}
           <ResponsiveContainer width="100%" height={170}>
-            <LineChart data={chart} margin={{ top: 24, right: 56, left: 0, bottom: 0 }}>
+            <LineChart data={chart} margin={{ top: 24, right: showLabels ? 56 : 8, left: 0, bottom: 0 }}>
               <CartesianGrid horizontal={false} vertical stroke="var(--border-subtle)" />
               <XAxis dataKey="label" tick={{ fontSize: 12, fill: "var(--text-secondary)" }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis hide domain={[0, "dataMax"]} />
+              <ReferenceLine y={0} stroke="var(--text-secondary)" strokeWidth={2} />
               <ReferenceLine x={lastLabel} stroke="var(--text-tertiary)" strokeDasharray="3 3" />
               <Tooltip formatter={(v, n) => [USD.format(Number(v)), String(n)]} contentStyle={TOOLTIP_STYLE} />
               <Line dataKey="income" name="Income" stroke="var(--color-income)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
               <Line dataKey="spend" name="Spending" stroke="var(--color-neutral-bar)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
-              <ReferenceDot x={lastLabel} y={last.income} r={4} fill="var(--color-income)" stroke="none" label={{ value: USD.format(last.income), position: "right", fill: "var(--color-income)", fontSize: 12, fontWeight: 600 }} />
-              <ReferenceDot x={lastLabel} y={last.spend} r={4} fill="var(--color-neutral-bar)" stroke="none" label={{ value: USD.format(last.spend), position: "right", fill: "var(--text-primary)", fontSize: 12, fontWeight: 600 }} />
+              <ReferenceDot x={lastLabel} y={last.income} r={4} fill="var(--color-income)" stroke="none" label={showLabels ? { value: USD.format(last.income), position: "right", fill: "var(--color-income)", fontSize: 12, fontWeight: 600 } : undefined} />
+              <ReferenceDot x={lastLabel} y={last.spend} r={4} fill="var(--color-neutral-bar)" stroke="none" label={showLabels ? { value: USD.format(last.spend), position: "right", fill: "var(--text-primary)", fontSize: 12, fontWeight: 600 } : undefined} />
             </LineChart>
           </ResponsiveContainer>
 
           {/* Bottom panel: Net-income bars (teal/orange) + EMA line */}
           <ResponsiveContainer width="100%" height={140}>
-            <ComposedChart data={chart} margin={{ top: 24, right: 56, left: 0, bottom: 0 }}>
+            <ComposedChart data={chart} margin={{ top: 24, right: showLabels ? 56 : 8, left: 0, bottom: 0 }}>
               <XAxis dataKey="label" hide />
-              <YAxis hide domain={["dataMin", "dataMax"]} />
-              <ReferenceLine y={0} stroke="var(--border-subtle)" />
+              <YAxis hide domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} />
+              <ReferenceLine y={0} stroke="var(--text-secondary)" strokeWidth={2} />
               <ReferenceLine x={lastLabel} stroke="var(--text-tertiary)" strokeDasharray="3 3" />
               <Tooltip formatter={(v, n) => [USD.format(Number(v)), String(n)]} contentStyle={TOOLTIP_STYLE} />
               <Bar dataKey="net" name="Net income" maxBarSize={26} isAnimationActive={false}>
                 {chart.map((d, i) => <Cell key={i} fill={d.net >= 0 ? NET_TEAL : "var(--color-negative)"} />)}
               </Bar>
               <Line dataKey="ema" name="Trend (EMA)" stroke="var(--color-confirm)" strokeWidth={2} dot={false} isAnimationActive={false} />
-              <ReferenceDot x={lastLabel} y={last.net} r={4} fill={last.net >= 0 ? NET_TEAL : "var(--color-negative)"} stroke="none" label={{ value: USD.format(last.net), position: "top", fill: last.net >= 0 ? NET_TEAL : "var(--color-negative)", fontSize: 12, fontWeight: 600 }} />
+              <ReferenceDot x={lastLabel} y={last.net} r={4} fill={last.net >= 0 ? NET_TEAL : "var(--color-negative)"} stroke="none" label={showLabels ? { value: USD.format(last.net), position: "top", fill: last.net >= 0 ? NET_TEAL : "var(--color-negative)", fontSize: 12, fontWeight: 600 } : undefined} />
             </ComposedChart>
           </ResponsiveContainer>
 
-          {/* The trend's own period control */}
-          <div className="flex gap-1 text-sm">
-            {(["6m", "1y", "3y", "all"] as const).map(v => (
-              <button key={v} onClick={() => setTp(v)}
-                className={cn("rounded-full px-3 py-1 transition-colors", tp === v ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                {v === "all" ? "All time" : v}
-              </button>
-            ))}
+          {/* The trend's own period control + labels toggle */}
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="flex gap-1">
+              {(["6m", "1y", "3y", "all"] as const).map(v => (
+                <button key={v} onClick={() => setTp(v)}
+                  className={cn("rounded-full px-3 py-1 transition-colors", tp === v ? "bg-secondary font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                  {v === "all" ? "All time" : v}
+                </button>
+              ))}
+            </div>
+            <LabelsToggle show={showLabels} onChange={setShowLabels} />
           </div>
+          <p className="text-xs text-muted-foreground">Includes {monthLabel(end)} so far.</p>
 
           {/* Legend (4 series) */}
           <div className="space-y-1.5 text-sm">
@@ -742,7 +816,7 @@ function IncomeSpendSavings({ start, end, accountIds, rangeLabel }: {
         </div>
       )}
 
-      <NetIncomeTrend end={end} accountIds={accountIds} />
+      <NetIncomeTrend accountIds={accountIds} />
     </div>
   );
 }
@@ -966,18 +1040,35 @@ function loadReportsPeriod(view: ReportId): Period {
   return "this-month";
 }
 
+// Which filters each report honours. Accounts apply to every ledger report;
+// Spend Over Time also slices by category, and both spend reports by label.
+const FILTERS: Record<ReportId, { accounts: boolean; categories: boolean; tags: boolean }> = {
+  "spend-by-category":    { accounts: true,  categories: false, tags: true },
+  "spend-over-time":      { accounts: true,  categories: true,  tags: true },
+  "income-spend-savings": { accounts: true,  categories: false, tags: false },
+  "period-comparison":    { accounts: true,  categories: false, tags: false },
+  "subscriptions":        { accounts: false, categories: false, tags: false },
+};
+
+const EMPTY_FILTERS: ReportFilterState = { accountIds: new Set(), categoryIds: new Set(), tagIds: new Set() };
+
 export default function Reports() {
   const t = useT();
   const [accounts, setAccounts]     = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [tags, setTags]             = useState<ReportTag[]>([]);
   const [view, setView] = useState<ReportId>(loadReportsView);
-  const [accountIds, setAccountIds] = useState<Set<number>>(new Set());
+  const [filters, setFilters] = useState<ReportFilterState>(EMPTY_FILTERS);
   const [period, setPeriod] = useState<Period>(() => loadReportsPeriod(view));
   const initial = period === "custom" ? periodToRange("this-month") : periodToRange(period);
   const [start, setStart] = useState(initial.start);
   const [end,   setEnd]   = useState(initial.end);
   const [filterOpen, setFilterOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Desktop keeps rich filters in a persistent rail beside the chart; smaller
+  // screens open them in a sheet (from the right on tablets, bottom on phones).
+  const isWide = useMediaQuery("(min-width: 1280px)");
+  const isTablet = useMediaQuery("(min-width: 1024px)");
 
   function handlePeriodChange(p: Exclude<Period, "custom">) {
     setPeriod(p);
@@ -996,10 +1087,12 @@ export default function Reports() {
     void Promise.all([
       fetchJson<unknown>("/api/accounts", controller.signal),
       fetchJson<unknown>("/api/categories", controller.signal),
-    ]).then(([accountRows, categoryRows]) => {
-      if (!Array.isArray(accountRows) || !Array.isArray(categoryRows)) throw new Error("Invalid filter response");
+      fetchJson<unknown>("/api/tags", controller.signal),
+    ]).then(([accountRows, categoryRows, tagRows]) => {
+      if (!Array.isArray(accountRows) || !Array.isArray(categoryRows) || !Array.isArray(tagRows)) throw new Error("Invalid filter response");
       setAccounts(accountRows);
       setCategories(categoryRows);
+      setTags(tagRows);
       setLoadError(null);
     }).catch(() => {
       if (!controller.signal.aborted) setLoadError("Couldn't load report filters.");
@@ -1017,7 +1110,14 @@ export default function Reports() {
   // selected report's detail (right). On mobile it drills in -- the list is the
   // landing page, and opening a report replaces it (back arrow returns).
   const current = REPORTS.find(r => r.id === view)!;
-  const usesAccountFilter = view !== "spend-over-time" && view !== "subscriptions"; // SOT has its own filters; subscriptions has none
+  const dims = FILTERS[view];
+  const showRail = isWide && (dims.categories || dims.tags);
+  const filterCount = activeFilterCount(filters, categories, dims.categories, dims.tags);
+  const filterProps = {
+    accounts, categories, tags,
+    showCategories: dims.categories, showTags: dims.tags,
+    value: filters, onChange: setFilters,
+  };
 
   return (
     <PageContainer className="py-4 lg:py-6">
@@ -1045,18 +1145,19 @@ export default function Reports() {
         })}
       </nav>
 
-      {/* Selected report */}
+      {/* Selected report (+ the desktop filter rail for reports with rich filters) */}
+      <div className={cn("min-w-0", showRail && "grid grid-cols-[minmax(0,1fr)_240px] items-start gap-6")}>
       <div className="min-w-0 space-y-4">
         {loadError && <ReportLoadError message={loadError} />}
         <div className="flex items-center gap-2">
           <h1 className="flex-1 truncate text-lg font-semibold tracking-tight">{t(`reports.${current.id}`)}</h1>
-          {usesAccountFilter && (
+          {dims.accounts && !showRail && (
             <button onClick={() => setFilterOpen(true)} aria-label="Filter"
               className="relative flex h-9 w-9 items-center justify-center rounded-lg hover:bg-secondary">
               <Filter className="h-5 w-5" />
-              {accountIds.size > 0 && (
+              {filterCount > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {accountIds.size}
+                  {filterCount}
                 </span>
               )}
             </button>
@@ -1082,23 +1183,44 @@ export default function Reports() {
         </div>
         )}
 
+        {/* Active filters stay visible (and removable) when the panel is closed. */}
+        {dims.accounts && !showRail && <ReportFilterChips {...filterProps} />}
+
         {/* Report content */}
-        {view === "spend-by-category" && <SpendByCategory start={start} end={end} accountIds={accountIds} rangeLabel={label} categories={categories} />}
-        {view === "spend-over-time" && <SpendOverTime start={start} end={end} accounts={accounts} categories={categories} />}
-        {view === "income-spend-savings" && <IncomeSpendSavings start={start} end={end} accountIds={accountIds} rangeLabel={label} />}
-        {view === "period-comparison" && <PeriodComparison start={start} end={end} accountIds={accountIds} categories={categories} />}
+        {view === "spend-by-category" && <SpendByCategory start={start} end={end} accountIds={filters.accountIds} tagIds={filters.tagIds} rangeLabel={label} categories={categories} />}
+        {view === "spend-over-time" && <SpendOverTime start={start} end={end} accountIds={filters.accountIds} categoryIds={filters.categoryIds} tagIds={filters.tagIds} />}
+        {view === "income-spend-savings" && <IncomeSpendSavings start={start} end={end} accountIds={filters.accountIds} rangeLabel={label} />}
+        {view === "period-comparison" && <PeriodComparison start={start} end={end} accountIds={filters.accountIds} categories={categories} />}
         {view === "subscriptions" && <SubscriptionsReport />}
-        </div>
       </div>
 
-      {/* Account filter sheet */}
-      <Sheet open={filterOpen} onOpenChange={setFilterOpen}>
-        <SheetContent side="bottom" className="p-4">
-          <SheetHeader className="mb-3 text-left">
-            <SheetTitle>Filter by account</SheetTitle>
+      {showRail && (
+        <aside aria-label="Report filters" className="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg border border-border p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-semibold">Filters</p>
+            {filterCount > 0 && (
+              <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-xs text-muted-foreground hover:text-foreground">Clear all</button>
+            )}
+          </div>
+          <ReportFilterPanel {...filterProps} compact />
+        </aside>
+      )}
+      </div>
+      </div>
+
+      {/* Filter sheet: bottom sheet on phones, side panel on tablets */}
+      <Sheet open={filterOpen && !showRail} onOpenChange={setFilterOpen}>
+        <SheetContent side={isTablet ? "right" : "bottom"} className={cn("flex flex-col gap-0 p-0", isTablet ? "w-96 sm:max-w-md" : "max-h-[85vh]")}>
+          <SheetHeader className="border-b border-border px-4 py-3 text-left">
+            <SheetTitle>Filters</SheetTitle>
           </SheetHeader>
-          <AccountFilter accounts={accounts} selected={accountIds} onChange={setAccountIds} />
-          <Button className="mt-4 w-full" onClick={() => setFilterOpen(false)}>Apply</Button>
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+            <ReportFilterPanel {...filterProps} />
+          </div>
+          <div className="flex gap-2 border-t border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button variant="outline" className="flex-1" disabled={filterCount === 0} onClick={() => setFilters(EMPTY_FILTERS)}>Clear all</Button>
+            <Button className="flex-1" onClick={() => setFilterOpen(false)}>Show results</Button>
+          </div>
         </SheetContent>
       </Sheet>
     </PageContainer>

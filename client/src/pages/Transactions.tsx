@@ -27,6 +27,7 @@ import PendingAmazonDialog from "@/components/PendingAmazonDialog";
 import { parseFormatACsv, parseFormatBCsv } from "@/lib/csvParsers";
 import { dedupeRows, findPotentialDupes } from "@/lib/dedupe";
 import AccountFilter from "@/components/AccountFilter";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import TransactionFilterPanel from "@/components/TransactionFilterPanel";
 import { type TxType } from "@/lib/txType";
 import { type DatePreset } from "@/lib/dateFilters";
@@ -99,25 +100,6 @@ function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);
   const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${String(d).padStart(2, "0")} ${months[m - 1]} ${y}`;
-}
-
-// Render only the view that matches the viewport (CSS `hidden` would keep both
-// the table and the list in the DOM, doubling thousands of row nodes).
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    typeof window !== "undefined" && typeof window.matchMedia === "function"
-      ? window.matchMedia(query).matches
-      : false
-  );
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const mql = window.matchMedia(query);
-    const onChange = () => setMatches(mql.matches);
-    onChange();
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-  return matches;
 }
 
 // Account label for a single (unpaired) row: transfers render "from → to" using

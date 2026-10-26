@@ -90,3 +90,39 @@ describe("report query validation", () => {
     expect((await request(app).get("/api/reports/income-spend-savings?group_by=week")).status).toBe(400);
   });
 });
+
+describe("reports label filter", () => {
+  let app: Awaited<ReturnType<typeof makeApp>>["app"];
+  let trip: number;
+  let work: number;
+
+  beforeEach(async () => {
+    ({ app } = await makeApp());
+    const accId = (await request(app).post("/api/accounts").send(ACCOUNT)).body.id;
+    trip = (await request(app).post("/api/tags").send({ name: "Trip" })).body.id;
+    work = (await request(app).post("/api/tags").send({ name: "Work" })).body.id;
+    // $100 tagged Trip (March), $30 tagged Work (April), $7 untagged (April).
+    const a = (await request(app).post("/api/transactions").send(tx(accId, { amount_fx: 100, amount_usd: 100 }))).body.id;
+    const b = (await request(app).post("/api/transactions").send(tx(accId, { date: "2025-04-02", amount_fx: 30, amount_usd: 30 }))).body.id;
+    await request(app).post("/api/transactions").send(tx(accId, { date: "2025-04-03", amount_fx: 7, amount_usd: 7 }));
+    await request(app).put(`/api/tags/transaction/${a}`).send({ tag_ids: [trip] });
+    await request(app).put(`/api/tags/transaction/${b}`).send({ tag_ids: [work] });
+  });
+
+  it("filters spend-over-time to transactions carrying any of the labels", async () => {
+    expect((await request(app).get(`/api/reports/spend-over-time?start=2025-01&end=2025-12&tag_ids=${trip}`)).body)
+      .toEqual([{ period: "2025-03", total_usd: 100 }]);
+    expect((await request(app).get(`/api/reports/spend-over-time?start=2025-01&end=2025-12&tag_ids=${trip},${work}`)).body)
+      .toEqual([{ period: "2025-03", total_usd: 100 }, { period: "2025-04", total_usd: 30 }]);
+  });
+
+  it("filters spend-by-category by label", async () => {
+    const res = await request(app).get(`/api/reports/spend-by-category?start=2025-01&end=2025-12&tag_ids=${work}`);
+    expect(res.body.reduce((s: number, r: { total_usd: number }) => s + r.total_usd, 0)).toBe(30);
+  });
+
+  it("rejects malformed tag_ids", async () => {
+    expect((await request(app).get("/api/reports/spend-by-category?tag_ids=abc")).status).toBe(400);
+    expect((await request(app).get("/api/reports/spend-over-time?tag_ids=1,-2")).status).toBe(400);
+  });
+});
