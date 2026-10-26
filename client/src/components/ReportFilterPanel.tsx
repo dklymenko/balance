@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { type FilterableAccount } from "@/components/AccountFilter";
 import { CategoryChecklist, CheckRow, categoryGroups, categorySelectionChips, type ChecklistCategory } from "@/components/FilterChecklist";
 import { visibleAccounts } from "@/lib/accountVisibility";
@@ -31,10 +30,11 @@ export interface ReportFilterBarProps {
   onChange: (next: ReportFilterState) => void;
 }
 
-// One filter button + its pop-up. Desktop opens a popover under the button;
-// phones open a bottom sheet. Either way the pop-up body is the ONLY scroll
-// area (no list scrolling inside a scrolling panel). An active filter shows
-// its selection on the button and an × beside it to clear it in one tap.
+// One filter button + its pop-up: a popover dropping down from the button
+// on every screen size (phones get a near-full-width one), so the list opens
+// right where you tapped instead of in a sheet at the bottom. The pop-up body
+// is the ONLY scroll area (no list scrolling inside a scrolling panel). An
+// active filter shows its selection on the button and an × beside it.
 function FilterButton({ icon: Icon, label, summary, count, onClear, children }: {
   icon: LucideIcon; label: string; summary: string | null; count: number;
   onClear: () => void; children: ReactNode;
@@ -43,54 +43,38 @@ function FilterButton({ icon: Icon, label, summary, count, onClear, children }: 
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const active = count > 0;
 
-  const trigger = (
-    <button type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open}
-      onClick={isDesktop ? undefined : () => setOpen(true)}
-      className={cn(
-        "flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
-        active ? "border-primary bg-primary/10 font-medium text-primary" : "border-border text-muted-foreground hover:text-foreground",
-      )}>
-      <Icon className="h-4 w-4 shrink-0" />
-      {/* Phones show the icon + count; wider screens add the label/summary. */}
-      <span className="hidden max-w-40 truncate sm:inline">{summary ?? label}</span>
-      {active && <span className="tabular-nums sm:hidden">{count}</span>}
-      <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 opacity-60 sm:block" />
-    </button>
-  );
-
-  const body = (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {children}
-      <div className="flex gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <Button variant="outline" className="flex-1" disabled={!active} onClick={onClear}>Clear</Button>
-        <Button className="flex-1" onClick={() => setOpen(false)}>Done</Button>
-      </div>
-    </div>
-  );
-
   return (
     <div className="flex shrink-0 items-center">
-      {isDesktop ? (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-          <PopoverContent align="end" collisionPadding={16}
-            className="flex max-h-[min(70vh,var(--radix-popover-content-available-height))] w-80 flex-col p-0">
-            {body}
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <>
-          {trigger}
-          <Sheet open={open} onOpenChange={setOpen}>
-            <SheetContent side="bottom" className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0">
-              <SheetHeader className="border-b border-border px-4 py-3 text-left">
-                <SheetTitle>{label}</SheetTitle>
-              </SheetHeader>
-              {body}
-            </SheetContent>
-          </Sheet>
-        </>
-      )}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label={label}
+            className={cn(
+              "flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+              active ? "border-primary bg-primary/10 font-medium text-primary" : "border-border text-muted-foreground hover:text-foreground",
+            )}>
+            <Icon className="h-4 w-4 shrink-0" />
+            {/* Phones show the icon + count; wider screens add the label/summary. */}
+            <span className="hidden max-w-40 truncate sm:inline">{summary ?? label}</span>
+            {active && <span className="tabular-nums sm:hidden">{count}</span>}
+            <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 opacity-60 sm:block" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" collisionPadding={16}
+          // Don't jump focus into the search box on phones: it would pop
+          // the keyboard up over the list before the user asked to type.
+          onOpenAutoFocus={isDesktop ? undefined : (e) => e.preventDefault()}
+          className="flex max-h-[min(70vh,var(--radix-popover-content-available-height))] w-[calc(100vw-2rem)] flex-col p-0 sm:w-80">
+          {/* The phone buttons are icon-only, so name the pop-up. */}
+          <p className="border-b border-border px-4 py-2.5 text-sm font-semibold sm:hidden">{label}</p>
+          <div className="flex min-h-0 flex-1 flex-col">
+            {children}
+            <div className="flex gap-2 border-t border-border p-3">
+              <Button variant="outline" className="flex-1" disabled={!active} onClick={onClear}>Clear</Button>
+              <Button className="flex-1" onClick={() => setOpen(false)}>Done</Button>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
       {active && (
         <button type="button" onClick={onClear} aria-label={`Clear ${label.toLowerCase()} filter`}
           className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground">
