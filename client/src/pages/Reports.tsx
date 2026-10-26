@@ -13,6 +13,7 @@ import { categoryColor } from "@/lib/categoryColors";
 import PageContainer from "@/components/PageContainer";
 import SubscriptionsReport from "@/components/SubscriptionsReport";
 import CategoryDrillDown, { type DrillDownTarget } from "@/components/CategoryDrillDown";
+import { simplifyCategoryTree } from "@/lib/categoryTree";
 import { Skeleton } from "@/components/ui/skeleton";
 import { markReportViewed } from "@/lib/onboarding";
 import { useT } from "@/lib/i18n";
@@ -261,7 +262,9 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
     return () => controller.abort();
   }, [start, end, accountIds, tagIds]);
 
-  const tree = useMemo(() => buildCategoryTree(rows, categories), [rows, categories]);
+  // Empty sub-categories are hidden and a lone spending sub-category stands
+  // in for its parent (see simplifyCategoryTree).
+  const tree = useMemo(() => simplifyCategoryTree(buildCategoryTree(rows, categories)), [rows, categories]);
   const grandTotal = tree.reduce((s, n) => s + n.total, 0);
 
   // Total vs. average-per-month. The toggle only makes sense across >1 month; a
@@ -360,16 +363,25 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                     </div>
                   </button>
                   {hasChildren && isExpanded && (
-                    <div className="ml-6 space-y-0.5 border-l border-border pl-1">
+                    <div className="ml-6 space-y-0.5 border-l border-border">
                       {node.children.map(child => {
                         const cpct = grandTotal ? (child.total / grandTotal) * 100 : 0;
+                        // Same two-line layout as the parent row (amount on
+                        // top, bar + % below) so every amount and % lines up
+                        // on the same right edge.
                         return (
                           <button key={child.id} onClick={() => setDrill({ id: child.id, name: child.name })}
-                            className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left hover:bg-secondary">
-                            <span className="truncate text-sm text-muted-foreground">{child.name}</span>
-                            <span className="shrink-0 text-sm tabular-nums text-muted-foreground">
-                              {fmt(child.total)} · {cpct.toFixed(0)}%
-                            </span>
+                            className="w-full rounded-lg py-1.5 pl-3 pr-2 text-left hover:bg-secondary">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sm text-muted-foreground">{child.name}</span>
+                              <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{fmt(child.total)}</span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <div className="h-1 flex-1 overflow-hidden rounded-full bg-secondary">
+                                <div className="h-full rounded-full opacity-60" style={{ width: `${cpct}%`, background: color }} />
+                              </div>
+                              <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground">{cpct.toFixed(0)}%</span>
+                            </div>
                           </button>
                         );
                       })}
@@ -392,7 +404,13 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
       ) : (
         /* Table view -- the raw numbers, for power users and screen readers. */
         <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
+          {/* Fixed column widths so every row's amount and % share one right edge. */}
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col />
+              <col className="w-28" />
+              <col className="w-20" />
+            </colgroup>
             <thead className="bg-secondary">
               <tr>
                 <th className="px-4 py-2 text-left font-medium">Category</th>
@@ -408,16 +426,18 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                   <tr key={`p-${node.id}`}
                     className="cursor-pointer border-t border-border hover:bg-secondary"
                     onClick={() => setDrill({ id: node.id, name: node.name })}>
-                    <td className="flex items-center gap-1.5 px-4 py-2 font-medium">
-                      {hasChildren
-                        ? (
-                          <button onClick={(e) => { e.stopPropagation(); toggle(node.id); }} aria-expanded={isExpanded}
-                            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`} className="-m-1 rounded p-1 hover:bg-muted">
-                            {isExpanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-                          </button>
-                        )
-                        : <span className="w-3.5" />}
-                      {node.name}
+                    <td className="px-4 py-2 font-medium">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        {hasChildren
+                          ? (
+                            <button onClick={(e) => { e.stopPropagation(); toggle(node.id); }} aria-expanded={isExpanded}
+                              aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.name}`} className="-m-1 shrink-0 rounded p-1 hover:bg-muted">
+                              {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                            </button>
+                          )
+                          : <span className="w-3.5 shrink-0" />}
+                        <span className="truncate">{node.name}</span>
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">{fmt(node.total)}</td>
                     <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
@@ -427,7 +447,7 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
                   ...(isExpanded ? node.children.map(child => (
                     <tr key={`c-${child.id}`} className="cursor-pointer border-t border-border bg-secondary/40 hover:bg-secondary"
                       onClick={() => setDrill({ id: child.id, name: child.name })}>
-                      <td className="px-4 py-2 pl-10 text-muted-foreground">{child.name}</td>
+                      <td className="truncate px-4 py-2 pl-10 text-muted-foreground">{child.name}</td>
                       <td className="px-4 py-2 text-right tabular-nums">{fmt(child.total)}</td>
                       <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
                         {grandTotal ? `${((child.total / grandTotal) * 100).toFixed(1)}%` : "--"}
