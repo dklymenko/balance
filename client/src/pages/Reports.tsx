@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, TrendingDown, TrendingUp, X, Tags, BarChart3, GitCompare, type LucideIcon, Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import ReportFilterBar, { type ReportFilterState, type ReportTag } from "@/components/ReportFilterPanel";
+import ReportFilterBar, { ReportFilterSummary, type ReportFilterState, type ReportTag } from "@/components/ReportFilterPanel";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -232,8 +232,9 @@ function MonthYearPicker({ value, onChange }: { value: string; onChange: (v: str
 
 // ─── Spend by Category ───────────────────────────────────────────────────────
 
-function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categories }: {
+function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categories, filterSummary }: {
   start: string; end: string; accountIds: Set<number>; tagIds: Set<number>; rangeLabel: string; categories: Category[];
+  filterSummary?: ReactNode;
 }) {
   const t = useT();
   const [rows, setRows] = useState<SpendRow[]>([]);
@@ -289,16 +290,19 @@ function SpendByCategory({ start, end, accountIds, tagIds, rangeLabel, categorie
 
   return (
     <div className="space-y-4">
-      {/* Headline */}
-      <div>
-        {loading ? (
-          <Skeleton className="h-9 w-40" />
-        ) : (
-          <p className="text-3xl font-bold leading-tight tabular-nums">{fmt(grandTotal)}</p>
-        )}
-        <p className="text-sm text-muted-foreground">
-          {rangeLabel}{amountMode === "average" && months > 1 ? " · average / month" : ""}
-        </p>
+      {/* Headline, with the active filters in the free space to its right */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="shrink-0">
+          {loading ? (
+            <Skeleton className="h-9 w-40" />
+          ) : (
+            <p className="text-3xl font-bold leading-tight tabular-nums">{fmt(grandTotal)}</p>
+          )}
+          <p className="text-sm text-muted-foreground">
+            {rangeLabel}{amountMode === "average" && months > 1 ? " · average / month" : ""}
+          </p>
+        </div>
+        {filterSummary}
       </div>
 
       {/* View switch + Total/Average toggle (average only when spanning >1 month) */}
@@ -517,8 +521,9 @@ function LabelsToggle({ show, onChange }: { show: boolean; onChange: (v: boolean
   );
 }
 
-function SpendOverTime({ start, end, accountIds, categoryIds, tagIds }: {
+function SpendOverTime({ start, end, accountIds, categoryIds, tagIds, filterSummary }: {
   start: string; end: string; accountIds: Set<number>; categoryIds: Set<number>; tagIds: Set<number>;
+  filterSummary?: ReactNode;
 }) {
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [showLabels, setShowLabels] = useChartLabels();
@@ -583,7 +588,12 @@ function SpendOverTime({ start, end, accountIds, categoryIds, tagIds }: {
             </div>
           )}
         </div>
-        <p className="mt-1 text-sm text-muted-foreground">{rangeLabel(start, end)}</p>
+        {/* Total + Avg fill the top row on a narrow window, so the active
+            filters share the date line instead. */}
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+          <p className="text-sm text-muted-foreground">{rangeLabel(start, end)}</p>
+          {filterSummary}
+        </div>
       </div>
 
       {loading ? (
@@ -1207,8 +1217,10 @@ export default function Reports() {
         )}
 
         {/* Report content */}
-        {view === "spend-by-category" && <SpendByCategory start={start} end={end} accountIds={filters.accountIds} tagIds={filters.tagIds} rangeLabel={label} categories={categories} />}
-        {view === "spend-over-time" && <SpendOverTime start={start} end={end} accountIds={filters.accountIds} categoryIds={filters.categoryIds} tagIds={filters.tagIds} />}
+        {view === "spend-by-category" && <SpendByCategory start={start} end={end} accountIds={filters.accountIds} tagIds={filters.tagIds} rangeLabel={label} categories={categories}
+          filterSummary={<ReportFilterSummary accounts={accounts} categories={categories} tags={tags} showCategories={false} showTags value={filters} stacked />} />}
+        {view === "spend-over-time" && <SpendOverTime start={start} end={end} accountIds={filters.accountIds} categoryIds={filters.categoryIds} tagIds={filters.tagIds}
+          filterSummary={<ReportFilterSummary accounts={accounts} categories={categories} tags={tags} showCategories showTags value={filters} />} />}
         {view === "income-spend-savings" && <IncomeSpendSavings start={start} end={end} accountIds={filters.accountIds} rangeLabel={label} />}
         {view === "period-comparison" && <PeriodComparison start={start} end={end} accountIds={filters.accountIds} categories={categories} />}
         {view === "subscriptions" && <SubscriptionsReport />}

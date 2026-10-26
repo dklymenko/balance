@@ -109,6 +109,50 @@ function summarize(names: string[]): string | null {
   return `${names.length} selected`;
 }
 
+// What a summary pill reads: "Disney 2026" / "Trip, Work" / "3 labels".
+function summarizeAs(names: string[], plural: string): string | null {
+  if (names.length === 0) return null;
+  if (names.length <= 2) return names.join(", ");
+  return `${names.length} ${plural}`;
+}
+
+// The active filters, as compact read-only pills beside a report's headline
+// (Labels, Categories, Accounts -- the button order). Renders nothing when no
+// filter is on, so an unfiltered report looks exactly as before. `stacked`
+// puts the pills in a right-aligned column (the free space beside a big
+// total); otherwise they sit in a right-aligned row that wraps.
+export function ReportFilterSummary({ accounts, categories, tags, showCategories, showTags, value, stacked = false }: {
+  accounts: FilterableAccount[];
+  categories: ChecklistCategory[];
+  tags: ReportTag[];
+  showCategories: boolean;
+  showTags: boolean;
+  value: ReportFilterState;
+  stacked?: boolean;
+}) {
+  const pills: { key: string; icon: LucideIcon; text: string }[] = [];
+  const tagText = showTags ? summarizeAs(tags.filter((t) => value.tagIds.has(t.id)).map((t) => t.name), "labels") : null;
+  if (tagText) pills.push({ key: "tags", icon: Tag, text: tagText });
+  const catText = showCategories ? summarizeAs(categorySelectionChips(categories, value.categoryIds).map((c) => c.label), "categories") : null;
+  if (catText) pills.push({ key: "categories", icon: FolderTree, text: catText });
+  const accText = summarizeAs(visibleAccounts(accounts).filter((a) => value.accountIds.has(a.id)).map((a) => a.name), "accounts");
+  if (accText) pills.push({ key: "accounts", icon: Wallet, text: accText });
+  if (pills.length === 0) return null;
+
+  return (
+    <div aria-label="Active filters"
+      className={cn("flex min-w-0 gap-1.5", stacked ? "max-w-[55%] flex-col items-end" : "ml-auto flex-wrap justify-end")}>
+      {pills.map(({ key, icon: Icon, text }) => (
+        <span key={key} title={text}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+          <Icon className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{text}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function toggle(set: Set<number>, id: number): Set<number> {
   const next = new Set(set);
   if (next.has(id)) next.delete(id); else next.add(id);

@@ -134,8 +134,12 @@ describe("Reports -- Spend Over Time filters", () => {
     const calls = () => (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map(([u]) => String(u));
     expect(calls().some(u => u.startsWith("/api/reports/spend-over-time") && u.includes("tag_ids=5"))).toBe(true);
 
+    // The active label is summarised beside the headline.
+    expect(screen.getByLabelText("Active filters")).toHaveTextContent("Trip");
+
     fireEvent.click(screen.getByRole("button", { name: "Clear labels filter" }));
     expect(screen.queryByRole("button", { name: "Clear labels filter" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Active filters")).not.toBeInTheDocument();
     expect(calls().at(-1)).toMatch(/^\/api\/reports\/spend-over-time(?!.*tag_ids)/);
   });
 });
