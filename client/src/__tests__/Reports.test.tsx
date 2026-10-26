@@ -114,18 +114,28 @@ describe("Reports -- Spend Over Time filters", () => {
     })) as unknown as typeof fetch);
   });
 
-  it("lists categories parent → children and filters by label", async () => {
+  it("lists categories parent → children in the Categories pop-up", async () => {
     render(<Reports />);
     fireEvent.click(await screen.findByRole("button", { name: /Spend Over Time/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Filter" }));
-
+    fireEvent.click(await screen.findByRole("button", { name: "Categories" }));
     const names = (await screen.findAllByRole("checkbox"))
       .map(el => el.textContent)
       .filter(n => ["ABA", "Airbnb", "Kids", "Travel"].includes(n ?? ""));
     expect(names).toEqual(["Kids", "ABA", "Travel", "Airbnb"]);
+  });
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Trip" }));
-    const calls = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map(([u]) => String(u));
-    expect(calls.some(u => u.startsWith("/api/reports/spend-over-time") && u.includes("tag_ids=5"))).toBe(true);
+  it("filters by label and clears it with the × beside the button", async () => {
+    render(<Reports />);
+    fireEvent.click(await screen.findByRole("button", { name: /Spend Over Time/i }));
+    expect(screen.queryByRole("button", { name: "Clear labels filter" })).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Labels" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Trip" }));
+    const calls = () => (fetch as unknown as { mock: { calls: [string][] } }).mock.calls.map(([u]) => String(u));
+    expect(calls().some(u => u.startsWith("/api/reports/spend-over-time") && u.includes("tag_ids=5"))).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear labels filter" }));
+    expect(screen.queryByRole("button", { name: "Clear labels filter" })).not.toBeInTheDocument();
+    expect(calls().at(-1)).toMatch(/^\/api\/reports\/spend-over-time(?!.*tag_ids)/);
   });
 });

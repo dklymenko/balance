@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq, gte, inArray, notInArray, lte, sql, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, notInArray, lte, sql, ne } from "drizzle-orm";
 import type { DrizzleDB } from "../db/types.js";
 import { transactions, categories, accounts, transactionTags } from "../db/schema.js";
 import { fromCents } from "../lib/finance.js";
@@ -96,6 +96,55 @@ router.get("/spend-by-category", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch spend by category" });
+  }
+});
+
+// GET /api/reports/spend-by-category/transactions
+// ?start=YYYY-MM&end=YYYY-MM&category_ids=1,2 (or uncategorized=1)&account_ids=&tag_ids=
+// The rows behind one category of the Spend by Category report: same
+// filters as the report itself (debits only, report exclusions honoured),
+// so the drill-down always adds up to the total it was opened from.
+const DRILL_DOWN_LIMIT = 5000;
+router.get("/spend-by-category/transactions", async (req, res) => {
+  try {
+    const start  = String(req.query.start || "2000-01");
+    const end    = String(req.query.end   || "2099-12");
+    const catIds = parseIds(req.query.category_ids);
+    const accIds = parseIds(req.query.account_ids);
+    const tagIds = parseIds(req.query.tag_ids);
+    const uncategorized = req.query.uncategorized === "1";
+    if (!isMonth(start) || !isMonth(end) || start > end) return res.status(400).json({ error: "start and end must be an ordered YYYY-MM range" });
+    if (catIds === false || accIds === false || tagIds === false) return res.status(400).json({ error: "filter ids must contain positive integers" });
+    if (!uncategorized && !catIds) return res.status(400).json({ error: "category_ids or uncategorized=1 is required" });
+
+    const where = and(eq(transactions.type, "debit"),
+      eq(transactions.exclude_from_reports, false),
+      notInExcludedAccount(),
+      ...monthBetween(start, end),
+      uncategorized ? isNull(transactions.category_id) : inArray(transactions.category_id, catIds as number[]),
+      accIds ? inArray(transactions.account_id, accIds) : undefined,
+      withAnyTag(tagIds)
+    );
+
+    const rows = await db
+      .select({
+        id:           transactions.id,
+        date:         transactions.date,
+        description:  transactions.description,
+        amount_usd:   transactions.amount_usd,
+        category_id:  transactions.category_id,
+        account_name: accounts.name,
+      })
+      .from(transactions)
+      .innerJoin(accounts, eq(transactions.account_id, accounts.id))
+      .where(where)
+      .orderBy(desc(transactions.date), desc(transactions.id))
+      .limit(DRILL_DOWN_LIMIT);
+
+    res.json(rows.map(r => ({ ...r, amount_usd: fromCents(Number(r.amount_usd)) })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch category transactions" });
   }
 });
 
