@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { and, eq, gte, inArray, notInArray, lte, sql, ne } from "drizzle-orm";
 import type { DrizzleDB } from "../db/types.js";
-import { transactions, categories, accounts } from "../db/schema.js";
+import { transactions, categories, accounts, transactionTags } from "../db/schema.js";
 import { fromCents } from "../lib/finance.js";
 
 export function createReportsRouter(db: DrizzleDB) {
@@ -27,6 +27,16 @@ function parseIds(raw: unknown): number[] | null | false {
   return ids.every((id) => Number.isSafeInteger(id) && id > 0) ? [...new Set(ids)] : false;
 }
 
+// Label filter: keep transactions carrying ANY of the given labels.
+function withAnyTag(tagIds: number[] | null) {
+  if (!tagIds || tagIds.length === 0) return undefined;
+  return inArray(
+    transactions.id,
+    db.select({ id: transactionTags.transaction_id }).from(transactionTags)
+      .where(inArray(transactionTags.tag_id, tagIds)),
+  );
+}
+
 function isMonth(value: string): boolean {
   return /^\d{4}-(?:0[1-9]|1[0-2])$/.test(value);
 }
@@ -50,20 +60,23 @@ function monthBetween(start: string, end: string) {
 }
 
 // GET /api/reports/spend-by-category
-// ?start=YYYY-MM&end=YYYY-MM&account_ids=1,2,3
+// ?start=YYYY-MM&end=YYYY-MM&account_ids=1,2,3&tag_ids=4,5
 router.get("/spend-by-category", async (req, res) => {
   try {
     const start  = String(req.query.start  || "2000-01");
     const end    = String(req.query.end    || "2099-12");
     const accIds = parseIds(req.query.account_ids);
+    const tagIds = parseIds(req.query.tag_ids);
     if (!isMonth(start) || !isMonth(end) || start > end) return res.status(400).json({ error: "start and end must be an ordered YYYY-MM range" });
     if (accIds === false) return res.status(400).json({ error: "account_ids must contain positive integers" });
+    if (tagIds === false) return res.status(400).json({ error: "tag_ids must contain positive integers" });
 
     const where = and(eq(transactions.type, "debit"),
       eq(transactions.exclude_from_reports, false),
       notInExcludedAccount(),
       ...monthBetween(start, end),
-      accIds ? inArray(transactions.account_id, accIds) : undefined
+      accIds ? inArray(transactions.account_id, accIds) : undefined,
+      withAnyTag(tagIds)
     );
 
     const rows = await db
@@ -87,22 +100,24 @@ router.get("/spend-by-category", async (req, res) => {
 });
 
 // GET /api/reports/spend-over-time
-// ?start=YYYY-MM&end=YYYY-MM&account_ids=1,2&category_ids=1,2
+// ?start=YYYY-MM&end=YYYY-MM&account_ids=1,2&category_ids=1,2&tag_ids=4,5
 router.get("/spend-over-time", async (req, res) => {
   try {
     const start   = String(req.query.start  || "2000-01");
     const end     = String(req.query.end    || "2099-12");
     const accIds  = parseIds(req.query.account_ids);
     const catIds  = parseIds(req.query.category_ids);
+    const tagIds  = parseIds(req.query.tag_ids);
     if (!isMonth(start) || !isMonth(end) || start > end) return res.status(400).json({ error: "start and end must be an ordered YYYY-MM range" });
-    if (accIds === false || catIds === false) return res.status(400).json({ error: "filter ids must contain positive integers" });
+    if (accIds === false || catIds === false || tagIds === false) return res.status(400).json({ error: "filter ids must contain positive integers" });
 
     const where = and(eq(transactions.type, "debit"),
       eq(transactions.exclude_from_reports, false),
       notInExcludedAccount(),
       ...monthBetween(start, end),
       accIds ? inArray(transactions.account_id, accIds) : undefined,
-      catIds ? inArray(transactions.category_id, catIds) : undefined
+      catIds ? inArray(transactions.category_id, catIds) : undefined,
+      withAnyTag(tagIds)
     );
 
     const rows = await db

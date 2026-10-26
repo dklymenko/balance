@@ -78,8 +78,8 @@ cookie encryption.
   about become visible
 
 Every report honors account- and transaction-level exclusions. Report filters
-can narrow the accounts in view, and Spend Over Time can also focus on selected
-categories, which helps keep reimbursements and one-off items from distorting
+can narrow the accounts in view, Spend Over Time can also focus on selected
+categories, and both spend reports can be narrowed to labels, which helps keep reimbursements and one-off items from distorting
 the shape of your spending.
 
 ### RSUs tracked as the asset

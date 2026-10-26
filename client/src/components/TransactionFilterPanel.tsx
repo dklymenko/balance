@@ -1,36 +1,13 @@
 import { type ReactNode } from "react";
-import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { txTypeLabel, type TxType } from "@/lib/txType";
 import { presetToRange, DATE_PRESET_LABELS, type DatePreset } from "@/lib/dateFilters";
+import { CategoryChecklist, CheckRow } from "@/components/FilterChecklist";
 
 interface Category { id: number; name: string; parent_id: number | null; }
 interface Tag { id: number; name: string; }
-
-// A square, multi-select-looking checkbox row.
-function CheckRow({ checked, onClick, children, indent }: {
-  checked: boolean; onClick: () => void; children: ReactNode; indent?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      onClick={onClick}
-      className={cn("flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted", indent && "pl-6")}
-    >
-      <span className={cn(
-        "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
-        checked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/40",
-      )}>
-        {checked && <Check className="h-3 w-3" />}
-      </span>
-      <span className={cn("truncate", checked && "font-medium")}>{children}</span>
-    </button>
-  );
-}
 
 function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
@@ -81,22 +58,6 @@ export default function TransactionFilterPanel(p: TransactionFilterPanelProps) {
     p.setSelectedTypes(next);
   }
 
-  function toggleCategory(id: number) {
-    const next = new Set(p.selectedCategoryIds);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    p.setSelectedCategoryIds(next);
-  }
-
-  // Selecting a parent toggles the parent AND all of its children together.
-  function toggleGroup(parentId: number, childIds: number[]) {
-    const groupIds = [parentId, ...childIds];
-    const next = new Set(p.selectedCategoryIds);
-    const allOn = groupIds.every((id) => next.has(id));
-    for (const id of groupIds) { if (allOn) next.delete(id); else next.add(id); }
-    p.setSelectedCategoryIds(next);
-  }
-
-  const parents = p.categories.filter((c) => c.parent_id === null);
   const allCatIds = p.categories.map((c) => c.id);
   const allCatsSelected = allCatIds.length > 0 && allCatIds.every((id) => p.selectedCategoryIds.has(id));
   const exactActive = p.amountExact.trim() !== "";
@@ -172,30 +133,12 @@ export default function TransactionFilterPanel(p: TransactionFilterPanelProps) {
           </button>
         }
       >
-        <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-md border p-1">
+        <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-md border border-border p-1">
           <CheckRow checked={p.uncategorizedOnly} onClick={() => p.setUncategorizedOnly(!p.uncategorizedOnly)}>
             Uncategorized only
           </CheckRow>
           <div className={cn(p.uncategorizedOnly && "pointer-events-none opacity-40")}>
-            {parents.map((parent) => {
-              const childIds = p.categories.filter((c) => c.parent_id === parent.id).map((c) => c.id);
-              const groupChecked = [parent.id, ...childIds].every((id) => p.selectedCategoryIds.has(id));
-              return (
-                <div key={parent.id}>
-                  <CheckRow checked={groupChecked} onClick={() => toggleGroup(parent.id, childIds)}>
-                    {parent.name}
-                  </CheckRow>
-                  {childIds.map((cid) => {
-                    const child = p.categories.find((c) => c.id === cid)!;
-                    return (
-                      <CheckRow key={cid} indent checked={p.selectedCategoryIds.has(cid)} onClick={() => toggleCategory(cid)}>
-                        {child.name}
-                      </CheckRow>
-                    );
-                  })}
-                </div>
-              );
-            })}
+            <CategoryChecklist categories={p.categories} selected={p.selectedCategoryIds} onChange={p.setSelectedCategoryIds} />
           </div>
         </div>
       </Section>
@@ -203,7 +146,7 @@ export default function TransactionFilterPanel(p: TransactionFilterPanelProps) {
       {/* Label */}
       {p.allTags.length > 0 && (
         <Section title="Label">
-          <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border p-1">
+          <div className="max-h-40 space-y-0.5 overflow-y-auto rounded-md border border-border p-1">
             <CheckRow checked={p.filterTagId === "all"} onClick={() => p.setFilterTagId("all")}>All labels</CheckRow>
             {p.allTags.map((t) => (
               <CheckRow key={t.id} checked={p.filterTagId === String(t.id)} onClick={() => p.setFilterTagId(String(t.id))}>
