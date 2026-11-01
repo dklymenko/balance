@@ -163,10 +163,13 @@ const PERIOD_OPTIONS: Record<ReportId, Period[]> = {
   "subscriptions":        [],
 };
 
-function periodToRange(p: Exclude<Period, "custom">): { start: string; end: string } {
+export function periodToRange(p: Exclude<Period, "custom">): { start: string; end: string } {
   const now = new Date();
   const thisMonth = ym(now);
-  const offset = (n: number) => { const d = new Date(now); d.setMonth(d.getMonth() + n); return ym(d); };
+  // Month math on "YYYY-MM" strings. Date#setMonth overflows late in the
+  // month (on Oct 31, "one month back" is Sep 31, i.e. Oct 1), which made
+  // "Last" show this month again on every 29th-31st.
+  const offset = (n: number) => shiftYm(thisMonth, n);
 
   switch (p) {
     case "this-month": return { start: thisMonth, end: thisMonth };
@@ -734,7 +737,8 @@ function NetIncomeTrend({ accountIds }: { accountIds: Set<number> }) {
     return () => controller.abort();
   }, [tStart, end, groupBy, accountIds]);
 
-  const rows = data.map(d => ({ label: formatPeriod(d.period), income: Math.round(d.income), spend: Math.round(d.spend), net: Math.round(d.income - d.spend) }));
+  // Yearly buckets fold the running month into the current year; say so.
+  const rows = data.map(d => ({ label: groupBy === "year" && d.period === end.slice(0, 4) ? `${d.period} YTD` : formatPeriod(d.period), income: Math.round(d.income), spend: Math.round(d.spend), net: Math.round(d.income - d.spend) }));
   let emaAcc = 0;
   const chart = rows.map((r, i) => { emaAcc = i === 0 ? r.net : 0.5 * r.net + 0.5 * emaAcc; return { ...r, ema: Math.round(emaAcc) }; });
   const last = chart[chart.length - 1];
