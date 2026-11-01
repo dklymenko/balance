@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { Account } from "@/components/SortableAccountRow";
+import { localYmd } from "@/lib/dateFilters";
 
 export interface BalanceCorrectionPayload {
   balance: number;
@@ -35,7 +36,7 @@ export default function BalanceCorrectionDialog({ account, onClose, onSave }: Pr
     if (!account) return;
     setBalance(String(account.balance));
     setReason("");
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(localYmd());
     setError(null);
   }, [account]);
 
