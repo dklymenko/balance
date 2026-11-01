@@ -22,7 +22,9 @@ export const DATE_PRESET_LABELS: Record<DatePreset, string> = {
   "custom": "Custom",
 };
 
-function localYmd(d: Date): string {
+// Local (device-time) YYYY-MM-DD. toISOString() alone is UTC, which in the
+// evening west of UTC is already tomorrow.
+export function localYmd(d: Date = new Date()): string {
   const tz = d.getTime() - d.getTimezoneOffset() * 60000;
   return new Date(tz).toISOString().slice(0, 10);
 }

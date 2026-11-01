@@ -33,6 +33,7 @@ import { findDefaultAccountId, type Account, type Category } from "./Transaction
 import { txTypeLabel } from "@/lib/txType";
 import TagPicker from "./TagPicker";
 import { ACCOUNT_GROUPS } from "@/lib/accountGroups";
+import { localYmd } from "@/lib/dateFilters";
 
 interface Tag {
   id: number;
@@ -168,7 +169,7 @@ function CategoryCell({ categories, value, onChange }: {
 export default function MultiTransactionForm({
   open, onClose, onSave, accounts, categories, allTags, onCreateTag, defaultAccountId, initialRows,
 }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
 
   function resolvedDefaultAccId() {
     return defaultAccountId ? String(defaultAccountId) : findDefaultAccountId(accounts);
