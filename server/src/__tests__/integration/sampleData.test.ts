@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { createApp } from "../../app.js";
 import { createTestDb } from "../../test/db.js";
+import { eq, sql } from "drizzle-orm";
 import { SAMPLE_ACCOUNT_DEFS } from "../../lib/sampleData.js";
+import { transactions } from "../../db/schema.js";
 
 async function makeApp() {
   const db = await createTestDb();
@@ -114,6 +116,65 @@ describe("POST /api/data/sample", () => {
     const res = await as(app, A).post("/api/data/sample").send({});
     expect(res.status).toBe(400);
     expect((await as(app, A).get("/api/accounts")).body).toHaveLength(1);
+  });
+
+  it("rejects an unknown dataset name and leaves the ledger empty", async () => {
+    const { app } = await makeApp();
+    expect((await as(app, A).post("/api/data/sample").send({ dataset: "huge" })).status).toBe(400);
+    expect((await as(app, A).get("/api/accounts")).body).toHaveLength(0);
+  });
+
+  for (const dataset of ["starter", "extended"] as const) {
+    it(`${dataset}: every account has zero drift and every transfer has an in and an out leg`, async () => {
+      const { app, db } = await makeApp();
+      const res = await as(app, A).post("/api/data/sample").send({ dataset });
+      expect(res.status).toBe(201);
+      expect(res.body.dataset).toBe(dataset);
+
+      const accts = (await as(app, A).get("/api/accounts")).body as { id: number; name: string }[];
+      expect(accts).toHaveLength(res.body.accounts);
+      for (const a of accts) {
+        const v = (await as(app, A).get(`/api/accounts/${a.id}/verify`)).body as { drift: number };
+        expect(v.drift, a.name).toBe(0);
+      }
+
+      const legs = await db.select().from(transactions).where(eq(transactions.type, "transfer"));
+      expect(legs.length).toBeGreaterThan(0);
+      const byGroup = new Map<string, string[]>();
+      for (const l of legs) byGroup.set(l.transfer_group_id!, [...(byGroup.get(l.transfer_group_id!) ?? []), l.transfer_direction!]);
+      for (const dirs of byGroup.values()) expect(dirs.sort()).toEqual(["in", "out"]);
+    });
+  }
+
+  it("extended: three years of history up to today, with one report-excluded row", async () => {
+    const { app, db } = await makeApp();
+    const res = await as(app, A).post("/api/data/sample").send({ dataset: "extended" });
+    expect(res.status).toBe(201);
+    expect(res.body.transactions).toBeGreaterThan(1000);
+
+    const txs = (await as(app, A).get("/api/transactions")).body as { total: number };
+    expect(txs.total).toBe(res.body.transactions);
+    const cats = (await as(app, A).get("/api/categories")).body as unknown[];
+    expect(cats).toHaveLength(res.body.categories);
+
+    const [{ min, max }] = await db.select({
+      min: sql<string>`min(${transactions.date})`, max: sql<string>`max(${transactions.date})`,
+    }).from(transactions);
+    const today = new Date().toISOString().slice(0, 10);
+    const threeYearsAgo = new Date(Date.now() - (3 * 365 - 1) * 86400_000).toISOString().slice(0, 10);
+    expect(max <= today).toBe(true);
+    expect(min <= threeYearsAgo).toBe(true);
+
+    const months = await db.selectDistinct({ m: sql<string>`substr(${transactions.date}, 1, 7)` }).from(transactions);
+    expect(months.length).toBeGreaterThanOrEqual(36);
+
+    const excluded = await db.select().from(transactions).where(eq(transactions.exclude_from_reports, true));
+    expect(excluded).toHaveLength(1);
+
+    // Balances stay plausible: checking and savings never end negative.
+    const accts = (await as(app, A).get("/api/accounts")).body as { name: string; balance: number }[];
+    expect(accts.find((a) => a.name === "Everyday Checking")!.balance).toBeGreaterThan(0);
+    expect(accts.find((a) => a.name === "Household Savings")!.balance).toBeGreaterThan(0);
   });
 
 });

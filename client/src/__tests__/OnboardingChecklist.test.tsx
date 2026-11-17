@@ -81,12 +81,29 @@ describe("OnboardingChecklist", () => {
     fireEvent.click(screen.getByText("Or explore with sample data"));
 
     await waitFor(() => expect(onSampleLoaded).toHaveBeenCalledOnce());
-    expect(fetchMock).toHaveBeenCalledWith("/api/data/sample", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/data/sample", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ dataset: "starter" }),
+    }));
+  });
+
+  it("offers three years of history as a second dataset", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const onSampleLoaded = vi.fn();
+
+    renderChecklist({ onSampleLoaded });
+    fireEvent.click(screen.getByText("Try 3 years of history"));
+
+    await waitFor(() => expect(onSampleLoaded).toHaveBeenCalledOnce());
+    expect(fetchMock).toHaveBeenCalledWith("/api/data/sample", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ dataset: "extended" }),
+    }));
   });
 
   it("surfaces the server's error when seeding is refused", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
+      status: 400,
       json: async () => ({ error: "Sample data can only be loaded into an empty household." }),
     }));
     renderChecklist();

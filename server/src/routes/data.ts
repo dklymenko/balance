@@ -9,7 +9,7 @@ import {
 } from "../db/schema.js";
 import { fromCents } from "../lib/finance.js";
 import { LOCAL_HOUSEHOLD_NAME } from "../lib/identity.js";
-import { seedSampleData } from "../lib/sampleData.js";
+import { parseSampleDataset, seedSampleData } from "../lib/sampleData.js";
 import { recordChange } from "../lib/ledgerHooks.js";
 import { recomputeAccountBalance } from "../lib/recompute.js";
 import { errorStatus, sendError } from "../lib/validation.js";
@@ -440,10 +440,13 @@ export function createDataRouter(db: DrizzleDB) {
   // household sees populated accounts and reports before entering any real
   // data. Admin only, and refused once the household has any account, so demo
   // rows can never mix into real books (reset first to re-seed).
+  // Body: { dataset?: "starter" | "extended" }, default "starter".
   router.post("/sample", async (req, res) => {
     try {
-      const counts = await seedSampleData(db);
-      res.status(201).json({ ok: true, ...counts });
+      const dataset = parseSampleDataset((req.body as { dataset?: unknown }).dataset);
+      if (!dataset) return res.status(400).json({ error: "Unknown sample dataset" });
+      const counts = await seedSampleData(db, dataset);
+      res.status(201).json({ ok: true, dataset, ...counts });
     } catch (err) {
       sendError(res, err, "Failed to load sample data");
     }

@@ -8,6 +8,7 @@ import {
   isOnboardingDismissed, dismissOnboarding,
   isReportViewed,
 } from "@/lib/onboarding";
+import { loadSampleData, type SampleDataset } from "@/lib/sampleData";
 
 interface Props {
   accountCount: number;
@@ -26,7 +27,7 @@ export default function OnboardingChecklist({ accountCount, transactionCount, is
   // Read once per mount: completing step 3 counts on the next visit, which is
   // fine -- the point is persistence, not live tracking of another tab.
   const [reportViewed] = useState(isReportViewed);
-  const [seeding, setSeeding] = useState(false);
+  const [seeding, setSeeding] = useState<SampleDataset | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const hasAccount = accountCount > 0;
@@ -43,26 +44,20 @@ export default function OnboardingChecklist({ accountCount, transactionCount, is
 
   if (!eligible || dismissed || allDone) return null;
 
-  async function loadSample() {
-    setSeeding(true);
+  async function loadSample(dataset: SampleDataset) {
+    setSeeding(dataset);
     setError(null);
-    try {
-      const res = await fetch("/api/data/sample", { method: "POST" });
-      if (!res.ok) {
-        const d = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(d.error ?? "Could not load sample data.");
-        // A 400 means the ledger is not actually empty -- this window is
-        // stale (data arrived after it loaded). Resync so the real ledger
-        // shows and the checklist re-evaluates.
-        if (res.status === 400) onSampleLoaded();
-        return;
-      }
+    const result = await loadSampleData(dataset);
+    setSeeding(null);
+    if (result.ok) {
       onSampleLoaded();
-    } catch {
-      setError("Could not load sample data.");
-    } finally {
-      setSeeding(false);
+      return;
     }
+    setError(result.error);
+    // A 400 means the ledger is not actually empty -- this window is
+    // stale (data arrived after it loaded). Resync so the real ledger
+    // shows and the checklist re-evaluates.
+    if (result.status === 400) onSampleLoaded();
   }
 
   const steps = [
@@ -107,12 +102,18 @@ export default function OnboardingChecklist({ accountCount, transactionCount, is
 
       {!hasAccount && (
         <div className="border-t pt-3 space-y-1">
-          <Button variant="outline" size="sm" disabled={seeding} onClick={loadSample}>
-            {seeding ? "Loading sample data…" : "Or explore with sample data"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" disabled={seeding !== null} onClick={() => loadSample("starter")}>
+              {seeding === "starter" ? "Loading sample data…" : "Or explore with sample data"}
+            </Button>
+            <Button variant="ghost" size="sm" disabled={seeding !== null} onClick={() => loadSample("extended")}>
+              {seeding === "extended" ? "Loading 3 years…" : "Try 3 years of history"}
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">
-            Fills this household with demo accounts and three months of transactions.
-            Remove it any time via Settings → Danger zone.
+            Fills this household with demo accounts and three months of transactions,
+            or three years for year-over-year reports. Remove it any time via
+            Settings → Danger zone.
           </p>
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>

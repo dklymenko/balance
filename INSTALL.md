@@ -23,6 +23,24 @@ targets. `npm run verify` checks repository hygiene, lint, types, all tests, and
 the production build before the app opens. `npm run audit:all` checks both the
 runtime dependencies and the development tools that a source user executes.
 
+### Start with sample data
+
+To look around before entering your own data, launch with `--sample-data`:
+
+```bash
+npm run start -- --sample-data
+```
+
+This fills a new, empty ledger with fictional accounts and three years of
+transactions, enough for year-over-year reports. Use
+`--sample-data=starter` for about three months instead. The flag only loads
+data into a ledger with no accounts and kept on this Mac, so leaving it on a
+later launch changes nothing. `npm run app -- --sample-data` does the same
+without rebuilding.
+
+Once Balance is set up, **Settings > Sample data** offers the same two
+datasets while the ledger is empty. **Settings > Danger zone** removes them.
+
 ## Update a source checkout
 
 Quit Balance and inspect your working tree before updating. If you have no local

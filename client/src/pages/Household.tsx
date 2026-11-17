@@ -12,6 +12,19 @@ import PageContainer from "@/components/PageContainer";
 import { useAdvancedFeatures, setAdvancedFeatures } from "@/lib/features";
 import { CURRENCIES } from "@/lib/currencies";
 import { useT, useLang, setLang, LANGS, type Lang } from "@/lib/i18n";
+import { loadSampleData, type SampleDataset } from "@/lib/sampleData";
+
+// Whether the ledger has no accounts (sample data can go only into an empty
+// one); null when unknown.
+async function fetchLedgerEmpty(): Promise<boolean | null> {
+  try {
+    const res = await apiFetch("/api/accounts");
+    const rows: unknown = res.ok ? await res.json() : null;
+    return Array.isArray(rows) ? rows.length === 0 : null;
+  } catch {
+    return null;
+  }
+}
 
 // Local preferences and data controls. Base currency persists via
 // PATCH /api/settings; visual and language preferences stay in this profile.
@@ -29,6 +42,10 @@ export default function Household() {
   const archiveInputRef = useRef<HTMLInputElement>(null);
   const advanced = useAdvancedFeatures();
   const [baseCurrency, setBaseCurrency] = useState("USD");
+  // null until known; sample data can only go into a ledger with no accounts.
+  const [ledgerEmpty, setLedgerEmpty] = useState<boolean | null>(null);
+  const [seeding, setSeeding] = useState<SampleDataset | null>(null);
+  const [sampleMsg, setSampleMsg] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -38,6 +55,23 @@ export default function Household() {
     } catch {
       setError("Couldn't load settings. Please try again.");
     }
+    setLedgerEmpty(await fetchLedgerEmpty());
+  }
+
+  async function seedSample(dataset: SampleDataset) {
+    setError(null);
+    setSampleMsg(null);
+    setSeeding(dataset);
+    const result = await loadSampleData(dataset);
+    setSeeding(null);
+    if (result.ok) {
+      setSampleMsg(`Sample data loaded (${result.transactions} transactions).`);
+      setResetMsg(null);
+      setArchiveMsg(null);
+    } else {
+      setError(result.error);
+    }
+    setLedgerEmpty(await fetchLedgerEmpty());
   }
 
   useEffect(() => { void load(); }, []);
@@ -221,6 +255,30 @@ export default function Household() {
         </div>
         <p className="text-xs text-muted-foreground">Restore is all-or-nothing and is available only when the ledger is empty.</p>
         {archiveMsg && <p role="status" className="text-xs text-green-600">{archiveMsg}</p>}
+      </section>
+
+      <section className="space-y-2" aria-label="Sample data">
+        <h2 className="text-sm font-medium">Sample data</h2>
+        <p className="text-xs text-muted-foreground">
+          Fill an empty ledger with fictional accounts and transactions to explore
+          Balance before entering your own. Remove it any time with the Danger zone below.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => seedSample("starter")}
+            disabled={ledgerEmpty !== true || seeding !== null}
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50">
+            {seeding === "starter" ? "Loading…" : "Load 3 months"}
+          </button>
+          <button type="button" onClick={() => seedSample("extended")}
+            disabled={ledgerEmpty !== true || seeding !== null}
+            className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50">
+            {seeding === "extended" ? "Loading…" : "Load 3 years"}
+          </button>
+        </div>
+        {ledgerEmpty === false && (
+          <p className="text-xs text-muted-foreground">Available only when the ledger has no accounts.</p>
+        )}
+        {sampleMsg && <p role="status" className="text-xs text-green-600">{sampleMsg}</p>}
       </section>
 
       {(
