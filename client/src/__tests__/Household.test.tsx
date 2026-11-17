@@ -11,9 +11,12 @@ function meResponse(role: "admin" | "member") {
 }
 
 let resetBody: unknown = null;
+let sampleBody: unknown = null;
+let accountRows: unknown[] = [];
 
 function stubFetch(role: "admin" | "member") {
   resetBody = null;
+  sampleBody = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -23,6 +26,12 @@ function stubFetch(role: "admin" | "member") {
         resetBody = JSON.parse(String(init?.body ?? "{}"));
         return { ok: true, status: 200, json: async () => ({ ok: true }) };
       }
+      if (u.includes("/api/data/sample")) {
+        sampleBody = JSON.parse(String(init?.body ?? "{}"));
+        accountRows = [{ id: 1 }];
+        return { ok: true, status: 201, json: async () => ({ ok: true, transactions: 3100 }) };
+      }
+      if (u.includes("/api/accounts")) return { ok: true, status: 200, json: async () => accountRows };
       if (u.includes("/api/data/import")) return { ok: true, status: 201, json: async () => ({ imported: 3 }) };
       if (u.includes("/api/household")) return { ok: true, status: 200, json: async () => ({ members: [], pending: [] }) };
       return { ok: true, status: 200, json: async () => ({}) };
@@ -56,6 +65,31 @@ describe("Household -- data export", () => {
     };
     fireEvent.change(screen.getByLabelText("Choose JSON backup"), { target: { files: [file] } });
     expect(await screen.findByRole("status")).toHaveTextContent("Backup restored successfully (3 records).");
+  });
+});
+
+describe("Household -- sample data", () => {
+  it("loads three years of sample data into an empty ledger, then disables the offer", async () => {
+    accountRows = [];
+    stubFetch("admin");
+    renderPage();
+    const threeYears = await screen.findByRole("button", { name: "Load 3 years" });
+    await waitFor(() => expect(threeYears).toBeEnabled());
+    fireEvent.click(threeYears);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Sample data loaded (3100 transactions).");
+    expect(sampleBody).toEqual({ dataset: "extended" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load 3 years" })).toBeDisabled());
+    expect(screen.getByRole("button", { name: "Load 3 months" })).toBeDisabled();
+    expect(screen.getByText("Available only when the ledger has no accounts.")).toBeInTheDocument();
+  });
+
+  it("keeps the offer disabled when the ledger already has accounts", async () => {
+    accountRows = [{ id: 7 }];
+    stubFetch("admin");
+    renderPage();
+    expect(await screen.findByText("Available only when the ledger has no accounts.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load 3 months" })).toBeDisabled();
   });
 });
 

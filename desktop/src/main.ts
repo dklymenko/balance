@@ -37,6 +37,7 @@ import {
 import { secureStorageCodec, unwrapSecret, wrapSecret } from "./secureStorage";
 import { shouldRestoreMainWindow } from "./windowLifecycle";
 import { protocolClientArgs, shouldReuseSyncToken } from "./cloudAuth";
+import { parseSampleDataFlag, requestSampleData } from "./sampleDataFlag";
 
 // One app, two modes (userData/config.json decides). Both boot the embedded
 // server in a utilityProcess against the local database. The file is plaintext
@@ -1161,6 +1162,31 @@ async function restartLocalServer(): Promise<LocalServer> {
   return started;
 }
 
+// `--sample-data[=starter|extended]`: seed the demo dataset into an empty
+// local ledger before the window opens. Output goes to the terminal that ran
+// the command. A Cloud profile (or one choosing Cloud on this first run) is
+// left alone so demo rows are never pushed to a household.
+async function loadSampleDataFromFlag(): Promise<void> {
+  const flag = parseSampleDataFlag(process.argv.slice(1));
+  if (!flag) return;
+  if ("error" in flag) {
+    console.error(`[shell] ${flag.error}`);
+    return;
+  }
+  if (!localServer || config?.mode !== "local" || config.cloudTransition) {
+    console.warn("[shell] --sample-data ignored: sample data is loaded only into a ledger kept on this Mac.");
+    return;
+  }
+  const outcome = await requestSampleData(localServer.origin, localApiToken, flag.dataset);
+  if (outcome.status === "seeded") {
+    console.log(`[shell] loaded ${outcome.dataset} sample data: ${outcome.accounts} accounts, ${outcome.transactions} transactions`);
+  } else if (outcome.status === "skipped") {
+    console.warn(`[shell] --sample-data skipped: ${outcome.reason}`);
+  } else {
+    console.error(`[shell] --sample-data failed: ${outcome.reason}`);
+  }
+}
+
 async function boot(): Promise<void> {
   applyDockIcon();
   installShellProtocol();
@@ -1294,6 +1320,8 @@ async function boot(): Promise<void> {
     app.exit(1);
     return;
   }
+
+  await loadSampleDataFromFlag();
 
   createMainWindow();
 

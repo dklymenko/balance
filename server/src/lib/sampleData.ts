@@ -7,17 +7,19 @@ import {
 } from "../db/schema.js";
 import { recomputeAccounts } from "./recompute.js";
 import { recordChange } from "./ledgerHooks.js";
+import { EXTENDED_DATASET } from "./sampleDataExtended.js";
 
 // Synthetic sample data for evaluating account, transaction, transfer,
 // reporting, multi-currency, and equity-holding workflows. All names and values
-// are fictional.
+// are fictional. Two datasets: "starter" (~3 months, the default, below) and
+// "extended" (3 years, sampleDataExtended.ts).
 //
-// Generation is deterministic relative to "today" (no randomness): fixed
+// Starter generation is deterministic relative to "today" (no randomness): fixed
 // days-of-month for bills/salary/transfers, fixed weekdays for groceries/
 // dining/transit, cycling through small amount/merchant lists so reports look
 // alive. All money is integer cents in the account's native currency.
 
-interface SampleAccountDef {
+export interface SampleAccountDef {
   name: string;
   account_type: AccountType;
   liquidity_type: LiquidityType;
@@ -38,7 +40,9 @@ export const SAMPLE_ACCOUNT_DEFS: SampleAccountDef[] = [
   { name: "Retirement 401k", account_type: "401k", liquidity_type: "Locked", base_currency: "USD", exchange_rate: 1, opening: 3800000 },
 ];
 
-const SAMPLE_CATEGORIES: { name: string; kind?: CategoryKind; children?: string[] }[] = [
+export interface SampleCategoryDef { name: string; kind?: CategoryKind; children?: string[] }
+
+const SAMPLE_CATEGORIES: SampleCategoryDef[] = [
   { name: "Salary", kind: "income" },
   { name: "Other Income", kind: "income" },
   { name: "Housing", children: ["Rent", "Utilities"] },
@@ -50,14 +54,32 @@ const SAMPLE_CATEGORIES: { name: string; kind?: CategoryKind; children?: string[
   { name: "Travel" },
 ];
 
-interface SampleTx {
+export interface SampleTx {
   date: string;
-  account: string; // SAMPLE_ACCOUNT_DEFS name
+  account: string; // name of one of the dataset's accounts
   category: string | null;
   description: string;
   amount: number; // native cents
   type: TransactionType;
   toAccount?: string; // transfer counterparty
+  excludeFromReports?: boolean;
+}
+
+// A dataset is a fixed set of accounts and categories plus a generator for
+// the ledger, relative to today.
+export interface SampleDataset {
+  accounts: SampleAccountDef[];
+  categories: SampleCategoryDef[];
+  transactions: () => SampleTx[];
+}
+
+export type SampleDatasetName = "starter" | "extended";
+export const SAMPLE_DATASETS: SampleDatasetName[] = ["starter", "extended"];
+
+// An absent dataset means the starter; anything else must be a known name.
+export function parseSampleDataset(raw: unknown): SampleDatasetName | null {
+  if (raw === undefined || raw === null || raw === "") return "starter";
+  return SAMPLE_DATASETS.includes(raw as SampleDatasetName) ? (raw as SampleDatasetName) : null;
 }
 
 const HISTORY_DAYS = 90;
@@ -125,8 +147,18 @@ function generateTransactions(): SampleTx[] {
   return rows;
 }
 
-export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number; categories: number; transactions: number }> {
-  const txDefs = generateTransactions();
+const STARTER_DATASET: SampleDataset = {
+  accounts: SAMPLE_ACCOUNT_DEFS,
+  categories: SAMPLE_CATEGORIES,
+  transactions: generateTransactions,
+};
+
+export async function seedSampleData(
+  db: DrizzleDB,
+  datasetName: SampleDatasetName = "starter",
+): Promise<{ accounts: number; categories: number; transactions: number }> {
+  const dataset = datasetName === "extended" ? EXTENDED_DATASET : STARTER_DATASET;
+  const txDefs = dataset.transactions();
 
   let categoryCount = 0;
   let txCount = 0;
@@ -142,7 +174,7 @@ export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number;
     const accountIdByName = new Map<string, number>();
     const accountUuids: string[] = [];
     const adjustmentUuids: string[] = [];
-    for (const def of SAMPLE_ACCOUNT_DEFS) {
+    for (const def of dataset.accounts) {
       const [row] = await tx.insert(accounts).values({
         name: def.name,
         account_type: def.account_type,
@@ -170,7 +202,7 @@ export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number;
 
     const categoryIdByName = new Map<string, number>();
     const categoryUuids: string[] = [];
-    for (const def of SAMPLE_CATEGORIES) {
+    for (const def of dataset.categories) {
       const [parent] = await tx.insert(categories).values({
          name: def.name, parent_id: null, kind: def.kind ?? "expense",
       }).returning({ id: categories.id, uuid: categories.uuid });
@@ -187,7 +219,7 @@ export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number;
       }
     }
 
-    const rate = (name: string) => SAMPLE_ACCOUNT_DEFS.find((a) => a.name === name)!.exchange_rate;
+    const rate = (name: string) => dataset.accounts.find((a) => a.name === name)!.exchange_rate;
     const values: (typeof transactions.$inferInsert)[] = [];
     for (const t of txDefs) {
       const legs = t.type === "transfer"
@@ -206,11 +238,17 @@ export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number;
           type: t.type,
           transfer_group_id: groupId,
           transfer_direction: leg.direction,
+          exclude_from_reports: t.excludeFromReports ?? false,
         });
       }
     }
-    const insertedTransactions = await tx.insert(transactions).values(values)
-      .returning({ uuid: transactions.uuid });
+    // Chunked: the extended dataset is a few thousand rows, past what one
+    // statement's parameter limit allows.
+    const insertedTransactions: { uuid: string }[] = [];
+    for (let i = 0; i < values.length; i += 500) {
+      insertedTransactions.push(...await tx.insert(transactions).values(values.slice(i, i + 500))
+        .returning({ uuid: transactions.uuid }));
+    }
     recomputeAccounts(tx, accountIdByName.values());
     for (const uuid of accountUuids) recordChange({ entity: "account", entityUuid: uuid, op: "upsert" });
     for (const uuid of categoryUuids) recordChange({ entity: "category", entityUuid: uuid, op: "upsert" });
@@ -219,5 +257,5 @@ export async function seedSampleData(db: DrizzleDB): Promise<{ accounts: number;
     txCount = values.length;
   });
 
-  return { accounts: SAMPLE_ACCOUNT_DEFS.length, categories: categoryCount, transactions: txCount };
+  return { accounts: dataset.accounts.length, categories: categoryCount, transactions: txCount };
 }
